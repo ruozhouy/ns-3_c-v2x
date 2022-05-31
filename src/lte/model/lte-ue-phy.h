@@ -839,11 +839,24 @@ private:
     Ptr<SidelinkCommResourcePoolV2x> m_pool; // the pool
     SidelinkCommResourcePoolV2x::SubframeInfo m_currentFrameInfo; // current frame/subframe
     std::map<uint16_t, SidelinkGrantInfoV2x> m_currentGrants; 
+    std::map< uint32_t, std::map<uint16_t, SidelinkGrantInfoV2x> > m_currentGrantsAll;  // all grants indexed by numCam
   };
 
   PoolInfoV2x m_sidelinkTxPoolsV2x;
   PoolInfoV2x m_slTxPoolInfoV2x;
   std::list <PoolInfoV2x> m_sidelinkRxPoolsV2x;
+  // ryu5
+public:
+  static uint32_t nPktsTxed;
+  static std::vector<uint16_t> lstInstTxing;
+  // ryu5
+  //static uint32_t                         curSubframe;    // frameNo * 10 + subframeNo
+  static std::map<uint32_t, uint32_t>     subframeTxMap;    // map of Txs in current subframe
+  //static uint32_t                         collisionCnt;   // how many transmitted packets get collision
+  uint32_t                                frameRound = 0;   // how many rounds have frameNo exceed 1024?
+  // !ryu5
+private:
+  // !ryu5
 
   //discovery
   struct DiscGrant

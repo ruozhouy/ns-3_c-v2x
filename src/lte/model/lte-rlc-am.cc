@@ -157,6 +157,7 @@ void
 LteRlcAm::DoTransmitPdcpPdu (Ptr<Packet> p)
 {
   NS_LOG_FUNCTION (this << m_rnti << (uint32_t) m_lcid << p->GetSize ());
+  std::cout << "[xx=xx] We are here rlc-am " << std::endl; // No we are not here...
 
   /** Store arrival time */
   Time now = Simulator::Now ();

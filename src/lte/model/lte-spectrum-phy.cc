@@ -50,6 +50,13 @@ namespace ns3 {
 
 NS_LOG_COMPONENT_DEFINE ("LteSpectrumPhy");
 
+// ryu5
+uint32_t LteSpectrumPhy::nPktsRxed = 0;
+uint32_t LteSpectrumPhy::nPktsCrpt = 0;
+uint32_t LteSpectrumPhy::nInstTxing = 0;
+std::vector<uint16_t> LteSpectrumPhy::lstInstTxing;
+// !ryu5
+
 
 /// duration of SRS portion of UL subframe  
 /// = 1 symbol for SRS -1ns as margin to avoid overlapping simulator events
@@ -640,6 +647,7 @@ LteSpectrumPhy::StartTxDataFrame (Ptr<PacketBurst> pb, std::list<Ptr<LteControlM
       // is done by setting the ctrlMsgList parameter of
       // LteSpectrumSignalParametersDataFrame
       ChangeState (TX_DATA);
+      //nInstTxing ++; // ryu5
       NS_ASSERT (m_channel);
       Ptr<LteSpectrumSignalParametersDataFrame> txParams = Create<LteSpectrumSignalParametersDataFrame> ();
       txParams->duration = duration;
@@ -704,6 +712,8 @@ LteSpectrumPhy::StartTxSlDataFrame (Ptr<PacketBurst> pb, std::list<Ptr<LteContro
       // is done by setting the ctrlMsgList parameter of
       // LteSpectrumSignalParametersDataFrame
       ChangeState (TX_DATA);
+      nInstTxing ++; // ryu5
+      lstInstTxing.push_back(m_rnti); // ryu5
       NS_ASSERT (m_channel);
       Ptr<LteSpectrumSignalParametersSlFrame> txParams = Create<LteSpectrumSignalParametersSlFrame> ();
       txParams->duration = duration;
@@ -857,6 +867,16 @@ LteSpectrumPhy::EndTxData ()
   m_txPacketBurst = 0;
   m_ulDataSlCheck = false;
   ChangeState (IDLE);
+
+  // ryu5
+  nInstTxing --; // ryu5
+  std::vector<uint16_t>::iterator instIt = std::find( lstInstTxing.begin(), lstInstTxing.end(), m_rnti );
+  if (instIt != lstInstTxing.end()) {
+    lstInstTxing.erase( instIt ); // ryu5
+  } else {
+    std::cout << "[X] Cannot find m_rnti to delete in LteSpectrumPhy" << std::endl;
+  }
+  // !ryu5
 }
 
 void
@@ -889,6 +909,18 @@ LteSpectrumPhy::StartRx (Ptr<SpectrumSignalParameters> spectrumRxParams)
   
   Ptr <const SpectrumValue> rxPsd = spectrumRxParams->psd;
   Time duration = spectrumRxParams->duration;
+
+  // ryu5
+  //std::cout << "Rx delay: " << duration << " | nInstTxing: " << nInstTxing << std::endl; // ryu5: +214285.0ns or +928570.0ns, not affected by lenCam // Set in LteUePhy::SubframeIndication()
+  // if (nInstTxing > 1) {
+  //   std::cout << "nInstTxing = " << nInstTxing << " ... m_rntis = ";
+  //   for (std::vector<uint16_t>::iterator instIt = lstInstTxing.begin(); instIt != lstInstTxing.end(); instIt++) {
+  //     std::cout << (*instIt) << " ";
+  //   }
+  //   std::cout << std::endl;
+  // }
+  // -> nInstTxing can be more than 1 (0, 1, 2, 3, or 4). Isn't this wrong?
+  // !ryu5
   
   // the device might start RX only if the signal is of a type
   // understood by this device - in this case, an LTE signal.
@@ -901,6 +933,7 @@ LteSpectrumPhy::StartRx (Ptr<SpectrumSignalParameters> spectrumRxParams)
       m_interferenceData->AddSignal (rxPsd, duration);
       m_interferenceSl->AddSignal (rxPsd, duration); //to compute UL/SL interference
       StartRxData (lteDataRxParams);
+      //nPktsRxed ++; // ryu5: Not here...
     }
   else if (lteSlRxParams !=0)
     {
@@ -909,11 +942,21 @@ LteSpectrumPhy::StartRx (Ptr<SpectrumSignalParameters> spectrumRxParams)
       if(m_ctrlFullDuplexEnabled && lteSlRxParams->ctrlMsgList.size () > 0) 
       { 
         StartRxSlData (lteSlRxParams);
+        //nPktsRxed ++; // ryu5: Not here...
       }
       else if (!m_halfDuplexPhy || m_halfDuplexPhy->GetState () == IDLE || !(m_halfDuplexPhy->m_ulDataSlCheck))
       {
         StartRxSlData (lteSlRxParams);
+        //nPktsRxed ++; // ryu5: Yes, it's here, but we can count it in this function as well...
+        // ryu5: Here, the number of Rx packets is smaller than expected Rxs, but still larger than the actual Rx in Udp, so more are dropped after this...
+        // ryu5: Validated - the "else" block below show that 1) most cases it's TX_DATA interfering with Rx, and 2) adding those collisions, the number exactly matches with expected Rx :)
       }
+      // ryu5
+      else if (m_halfDuplexPhy->GetState () != IDLE) {
+        //std::cout << "---> State of m_halfDuplexPhy: " << m_halfDuplexPhy->GetState () << " | IDLE: " << IDLE << std::endl; //=> Almost always in TX_DATA when entering here...
+        //nPktsRxed ++; //=> Adding this makes the number even between Tx and Rx.
+      }
+      // !ryu5
     }
   else if (lteDlCtrlRxParams!=0)
     {
@@ -1020,14 +1063,14 @@ LteSpectrumPhy::StartRxSlData (Ptr<LteSpectrumSignalParametersSlFrame> params)
   switch (m_state)
   {
     case TX_DATA:
-      case TX_DL_CTRL:
-      case TX_UL_SRS:
+    case TX_DL_CTRL:
+    case TX_UL_SRS:
         NS_FATAL_ERROR ("cannot RX while TX: according to FDD channel access, the physical layer for transmission cannot be used for reception");
         break;
-      case RX_DL_CTRL:
+    case RX_DL_CTRL:
         NS_FATAL_ERROR ("cannot RX Data while receiving control");
         break;
-      case IDLE:
+    case IDLE:
     case RX_DATA:
       // the behavior is similar when
       // we're IDLE or RX because we can receive more signals
@@ -1156,6 +1199,7 @@ LteSpectrumPhy::StartRxSlData (Ptr<LteSpectrumSignalParametersSlFrame> params)
                   {
                     m_phyRxStartTrace (params->packetBurst);
                     NS_LOG_DEBUG (this << " RX Burst containing " << params->packetBurst->GetNPackets() << " packets");
+                    nPktsRxed ++; // ryu5 => Still sam as LteUePhy::nPktsTxed * (numVeh - 1)
                   }
                 NS_LOG_DEBUG (this << " insert sidelink ctrl msgs " << params->ctrlMsgList.size ());
                 NS_LOG_LOGIC (this << " numSimultaneousRxEvents = " << m_rxPacketInfo.size ());
@@ -1437,7 +1481,9 @@ LteSpectrumPhy::AddExpectedTbV2x (uint16_t  rnti, uint16_t size, uint8_t mcs, st
   if (it != m_expectedSlV2xTbs.end ())
     {
       // migth be a TB of an unreceived packet (due to high progpalosses)
-      m_expectedSlV2xTbs.erase (it);
+      m_expectedSlV2xTbs.erase (it); // If we do not erase here, then the nPktsCrpt = 0, and all could be received!!!
+      ////nPktsCrpt ++; // ryu5: are we here? => We are here for many many times... this might not be the good place to add to nPktsCrpt
+      //std::cout << "[X] are we here?" << std::endl; // ryu5
     }
   // insert new entry
   SlV2xTbInfo_t tbInfo = {size, mcs, map, 0.0, false, false};
@@ -1913,6 +1959,14 @@ LteSpectrumPhy::EndRxSlData ()
       itTb++;
     }
 
+  // // ryu5
+  // std::cout << "  m_dataErrorModelEnabled=" << m_dataErrorModelEnabled  // true
+  //           << "  m_dropRbOnCollisionEnabled=" << m_dropRbOnCollisionEnabled  // false
+  //           << "  m_nistErrorModelEnabled=" << m_nistErrorModelEnabled  // true
+  //           << "  m_slBlerEnabled=" << m_slBlerEnabled  // true
+  //           << std::endl;
+  // // !ryu5
+
   //Compute error for each expected Tb
   expectedSlV2xTbs_t::iterator itTbV2x = m_expectedSlV2xTbs.begin ();
   std::map <SlV2xTbId_t, uint32_t>::iterator itSinrV2x;
@@ -1940,6 +1994,8 @@ LteSpectrumPhy::EndRxSlData ()
                       NS_LOG_DEBUG( this << "\t" << *rbIt << " decoded, labeled as corrupted!");
                       rbDecoded = true;
                       (*itTbV2x).second.corrupt = true;
+                      if ((*itTbV2x).second.corrupt) nPktsCrpt ++; // ryu5: None here since m_dropRbOnCollisionEnabled=false
+
                       break;
                     }
                 }
@@ -1955,6 +2011,7 @@ LteSpectrumPhy::EndRxSlData ()
                   if(!rbDecoded)
                     {
                       (*itTbV2x).second.corrupt = m_random->GetValue () > tbStats.tbler ? false : true;
+                      if ((*itTbV2x).second.corrupt) nPktsCrpt ++; // ryu5
                     }
                 }
             NS_LOG_DEBUG (this << " from RNTI " << (*itTbV2x).first.m_rnti << " size " << (*itTbV2x).second.size << " mcs " << (uint32_t)(*itTbV2x).second.mcs << " bitmap " << (*itTbV2x).second.rbBitmap.size () << " TBLER " << tbStats.tbler << " corrupted " << (*itTbV2x).second.corrupt);
@@ -1969,6 +2026,27 @@ LteSpectrumPhy::EndRxSlData ()
                 if (!rbDecoded)
                   {
                     (*itTbV2x).second.corrupt = m_random->GetValue () > tbStats.tbler ? false : true;
+
+                    // ryu5
+                    if ((*itTbV2x).second.corrupt) nPktsCrpt ++; // ryu5
+                    // ryu5: whenever corrupted, SINR always = 0...
+                    // => After running the correct schedule (with up to 1 Tx per vehicle per subframe), then this is correct: all corrupted has non-zero but low SINRs.
+                    //if ((*itTbV2x).second.corrupt) std::cout << "correputed: SINR = " << GetMeanSinr (m_slSinrPerceived[(*itSinrV2x).second]*4 /* Average gain for SIMO based on [CatreuxMIMO] */, (*itTbV2x).second.rbBitmap) << std::endl;
+                    if ((*itTbV2x).second.corrupt) {
+                      // SpectrumValue svv = m_slSinrPerceived[(*itSinrV2x).second];
+                      // std::cout << "corrupted ... " << "m_slSinrPerceived[(*itSinrV2x).second].size()=" << (svv.ValuesEnd() - svv.ValuesBegin()) << " ... ";
+                      // for (int ixx = 0; ixx < (*itTbV2x).second.rbBitmap.size(); ixx++) {
+                      //   int rbIdx = (*itTbV2x).second.rbBitmap[ixx];
+                      //   std::cout << "rb=" << rbIdx << " sinr=" << svv[rbIdx] << "    ";
+                      // }
+                      /////////=> Here, essentially on the first subch has SINR value. All others do not have SINR value. Definitely SINR processing has some logical error.
+                      // for (int ixx = 0; ixx < 30; ixx++) {
+                      //   int rbIdx = ixx;
+                      //   std::cout << "rb=" << rbIdx << " sinr=" << svv[rbIdx] << "    ";
+                      // }
+                      //std::cout << std::endl;
+                    }
+                    // !ryu5
                   }
               }
             /*std::cout  << " from RNTI " << (*itTbV2x).first.m_rnti 

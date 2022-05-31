@@ -239,6 +239,12 @@ private:
 
   SpectrumInterference m_interference; //!< Received interference
 
+  // ryu5: debug info
+public:
+  static uint32_t nPktsRxed;
+private:
+  // !ryu5
+
 };
 
 }

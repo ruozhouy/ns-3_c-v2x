@@ -103,7 +103,8 @@ static const int McsToItbsDl[29] = {
  * 36.213 v8.8.0 Table 8.6.1-1: _Modulation, TBS index and redundancy version table for PUSCH_.
  * The index of the vector (range 0-28) identifies the MCS index.
  */
-static const int McsToItbsUl[29] = {
+//static const int McsToItbsUl[29] = {
+const int LteAmc::McsToItbsUl[29] = { // ryu5: define as static const in LteAmc class
   0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 11, 12, 13, 14, 15, 16, 17, 18,
   19, 19, 20, 21, 22, 23, 24, 25, 26
 };
@@ -116,7 +117,8 @@ static const int McsToItbsUl[29] = {
  *       consistent with the other values, therefore we use 88 obtained by
  *       following the sequence of NPRB = 1 values.
  */
-static const int TransportBlockSizeTable [110][27] = {
+//static const int TransportBlockSizeTable [110][27] = {
+const int LteAmc::TransportBlockSizeTable [110][27] = { // ryu5: define as static const in LteAmc class
   /* NPRB 001*/ { 16, 24, 32, 40, 56, 72, 88, 104, 120, 136, 144, 176, 208, 224, 256, 280, 328, 336, 376, 408, 440, 488, 520, 552, 584, 616, 712},
   /* NPRB 002*/ { 32, 56, 72, 104, 120, 144, 176, 224, 256, 296, 328, 376, 440, 488, 552, 600, 632, 696, 776, 840, 904, 1000, 1064, 1128, 1192, 1256, 1480},
   /* NPRB 003*/ { 56, 88, 144, 176, 208, 224, 256, 328, 392, 456, 504, 584, 680, 744, 840, 904, 968, 1064, 1160, 1288, 1384, 1480, 1608, 1736, 1800, 1864, 2216},

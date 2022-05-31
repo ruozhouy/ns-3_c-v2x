@@ -45,6 +45,9 @@ NS_LOG_COMPONENT_DEFINE ("MultiModelSpectrumChannel");
 
 NS_OBJECT_ENSURE_REGISTERED (MultiModelSpectrumChannel);
 
+// ryu5
+uint32_t MultiModelSpectrumChannel::nPktsTxed = 0;
+// !ryu5
 
 /**
  * \brief Output stream operator
@@ -376,12 +379,16 @@ MultiModelSpectrumChannel::StartTx (Ptr<SpectrumSignalParameters> txParams)
                   uint32_t dstNode =  netDev->GetNode ()->GetId ();
                   Simulator::ScheduleWithContext (dstNode, delay, &MultiModelSpectrumChannel::StartRx, this,
                                                   rxParams, *rxPhyIterator);
+                  if (delay > Time(0)) std::cout << "In multi-model-spectrum-channel.cc: delay = " << delay << std::endl;
+                  nPktsTxed ++; // ryu5
                 }
               else
                 {
                   // the receiver is not attached to a NetDevice, so we cannot assume that it is attached to a node
                   Simulator::Schedule (delay, &MultiModelSpectrumChannel::StartRx, this,
                                        rxParams, *rxPhyIterator);
+                  if (delay > Time(0)) std::cout << "In multi-model-spectrum-channel.cc: delay = " << delay << std::endl;
+                  nPktsTxed ++; // ryu5
                 }
             }
         }

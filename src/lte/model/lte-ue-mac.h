@@ -37,6 +37,7 @@
 #include <ns3/nstime.h>
 #include <ns3/event-id.h>
 #include <vector>
+#include <unordered_set>
 #include <ns3/packet.h>
 #include <ns3/packet-burst.h>
 #include "ns3/traced-value.h"
@@ -424,16 +425,31 @@ private:
   double m_probResourceKeep; ///< probability for selecting the previous resource again 
   uint8_t m_t1; ///< defining the size of the selection window
   uint8_t m_t2; ///< defining the size of the selection window
-  uint8_t m_sizeSubchannel; ///< number of resource blocks per subframe
-  uint8_t m_numSubchannel; ///< number of subchannels per subframe
-  uint8_t m_startRbSubchannel; ///< resource block index where the subchannels begin
-  uint16_t m_pRsvp; ///< Resource Reservation Interval in ms 
+  uint8_t m_sizeSubchannel; ///< number of resource blocks per subframe (ryu5: default=10)
+  uint8_t m_numSubchannel; ///< number of subchannels per subframe (ryu5: default=3)
+  uint8_t m_startRbSubchannel; ///< resource block index where the subchannels begin (ryu5: default=0)
+  uint16_t m_pRsvp; ///< Resource Reservation Interval in ms (ryu5: default=100)
   uint16_t rndmStart = (rand()%((3000+1)-2000))+2000; ///< counter for random start of resource allocation process
   bool firstTx = true; 
+  // ryu5
+  uint32_t m_numCam = 1;
+  bool idealScheduled = false;
+  bool pickFromMore = false;
+public:
+  static std::vector< std::vector< uint32_t > > idealScheduleResourceMap;
+  bool      prepareToOffset = false; // preparing to change offset below; set when frameNo = 500 or something...
+  uint32_t  idealScheduleOffset = 0; // How much offset should be applied to idealScheduleResourceMap; initially 0; every 1024 frame gives it 4...
+  // ryu5
+  static uint32_t nPktsTxed;
+  static uint32_t skippedTx;
+  // !ryu5
+private:
+  // !ryu5
   
   std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo> txOpps; // list with all tx opportunities calculated by SPS 
   SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo txInfo; // selected resource
-
+  // ryu5
+  std::vector<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo> txInfosAll; // selected resource for all numCam
 
   //sidelink variables
   struct SidelinkLcIdentifier
@@ -522,6 +538,12 @@ private:
     std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo> m_pscchTx;
     std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo> m_psschTx; 
 
+    // ryu5
+    std::vector<SidelinkGrantV2x> m_currentGrantsAll;
+    std::vector<SidelinkGrantV2x> m_nextGrantsAll;
+    std::vector< std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo> > m_pscchTxsAll;
+    std::vector< std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo> > m_psschTxsAll; 
+
     Ptr<PacketBurst> m_miSlHarqProcessPacket; // Packets under transmission of the SL HARQ process
 
   };
@@ -529,7 +551,9 @@ private:
   std::map <uint32_t, PoolInfoV2x> m_sidelinkTxPoolsMapV2x; 
   std::list <Ptr<SidelinkRxCommResourcePoolV2x> > m_sidelinkRxPoolsV2x; 
   uint8_t m_reselCtr = 0; // Reselection Counter for resource allocation
-  uint8_t m_subchLen = 1; 
+  uint8_t m_subchLen = 1; ///< (ryu5: default=1)
+  // ryu5
+  uint32_t m_reselSubCtr = 0;  // ryu5: Reselection Sub-Counter for numCam
   
   struct SidelinkGrantInfoV2x {
     SidelinkGrantV2x m_grant;
@@ -634,7 +658,7 @@ private:
    /**
    * \brief See 36.213 section 14.1.1.6 V15.0.0
    */
-  std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo> GetTxResources (SidelinkCommResourcePoolV2x::SubframeInfo subframe, PoolInfoV2x pool);
+  std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo> GetTxResources (SidelinkCommResourcePoolV2x::SubframeInfo subframe, PoolInfoV2x pool, double ratioOfResources);
   /**
    * \brief See 36.321 section 5.14.1.1 V15.0.0
    */

@@ -44,6 +44,8 @@
 #include <ns3/lte-phy-error-model.h>
 #include "ns3/random-variable-stream.h"
 #include <map>
+#include <algorithm> // ryu5
+#include <vector> // ryu5
 #include <ns3/ff-mac-common.h>
 #include <ns3/lte-harq-phy.h>
 #include <ns3/lte-common.h>
@@ -268,6 +270,15 @@ typedef Callback< void, UlInfoListElement_s > LtePhyUlHarqFeedbackCallback;
  */
 class LteSpectrumPhy : public SpectrumPhy
 {
+
+  // ryu5
+public:
+  static uint32_t nPktsRxed;  // ryu5: # packets being received in StartRx()
+  static uint32_t nPktsCrpt;  // ryu5: # packets corrupted somehow...
+  static uint32_t nInstTxing; // ryu5: # instances of LteSpectrumPhy that is in TX_DATA state
+  uint16_t m_rnti = 0; // ryu5 added: which Phy this is...
+  static std::vector<uint16_t> lstInstTxing; // ryu5: list of instances (m_rnti) Txing
+  // !ryu5
 
 public:
   LteSpectrumPhy ();

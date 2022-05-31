@@ -355,6 +355,11 @@ UeMemberLteUePhySapUser::PassSensingData(uint32_t frameNo, uint32_t subframeNo, 
 // LteUeMac methods
 ///////////////////////////////////////////////////////////
 
+// ryu5
+std::vector< std::vector< uint32_t > > LteUeMac::idealScheduleResourceMap;
+uint32_t LteUeMac::nPktsTxed = 0;
+uint32_t LteUeMac::skippedTx = 0;
+// !ryu5
 
 TypeId
 LteUeMac::GetTypeId (void)
@@ -449,6 +454,23 @@ LteUeMac::GetTypeId (void)
 					BooleanValue(false),
                    	MakeBooleanAccessor (&LteUeMac::m_partialSensing),
                    	MakeBooleanChecker ())
+	// ryu5
+	.AddAttribute ("NumCam",
+					"Num of CAM messages per RRI",
+					UintegerValue(1),
+					MakeUintegerAccessor (&LteUeMac::m_numCam),
+					MakeUintegerChecker<uint32_t> ())
+	.AddAttribute ("IdealScheduled",
+					"Whether to use ideal scheduled or not. If used, must have the static idealScheduleResourceMap assigned",
+					BooleanValue(false),
+					MakeBooleanAccessor (&LteUeMac::idealScheduled),
+					MakeBooleanChecker ())
+	.AddAttribute ("PickFromMore",
+					"Whether to pick from more than 20% resources in SPS",
+					BooleanValue(false),
+					MakeBooleanAccessor (&LteUeMac::pickFromMore),
+					MakeBooleanChecker ())
+	// !ryu5
 	.AddTraceSource ("SlUeScheduling",
 				     "Information regarding SL UE scheduling",
 				     MakeTraceSourceAccessor (&LteUeMac::m_slUeScheduling),
@@ -640,6 +662,7 @@ LteUeMac::DoReportBufferStatus (LteMacSapProvider::ReportBufferStatusParameters 
   
 	if (params.srcL2Id == 0) 
     {
+  		//std::cout << "[xx=xx] We are here DoReportBufferStatus -- UL" << std::endl; // No, we are not here...
       NS_ASSERT (params.dstL2Id == 0);
       NS_LOG_INFO ("Reporting for uplink");
       //regular uplink BSR
@@ -702,6 +725,7 @@ LteUeMac::DoReportBufferStatus (LteMacSapProvider::ReportBufferStatusParameters 
   else
     {
       NS_LOG_INFO ("Reporting for sidelink");
+  		//std::cout << "[xx=xx] We are here DoReportBufferStatus -- SL" << std::endl; // Yes, we are here...
       //sidelink BSR
       std::map <SidelinkLcIdentifier, LteMacSapProvider::ReportBufferStatusParameters>::iterator it;
 
@@ -3206,7 +3230,7 @@ LteUeMac::GetReTxResources(SidelinkCommResourcePoolV2x::SubframeInfo initialTx, 
 }
 
 std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo>
-LteUeMac::GetTxResources(SidelinkCommResourcePoolV2x::SubframeInfo subframe, PoolInfoV2x pool)
+LteUeMac::GetTxResources(SidelinkCommResourcePoolV2x::SubframeInfo subframe, PoolInfoV2x pool, double ratioOfResources = 0.2) // ryu5: added ratioOfResources to denote minimum # resources to transmit on
 { 		
 	NS_LOG_INFO (this << "Start Resource Allocation - Semi Persistent Scheduling"); 
 	std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo> csrA, csrB, copyCsrA; 
@@ -3336,8 +3360,9 @@ LteUeMac::GetTxResources(SidelinkCommResourcePoolV2x::SubframeInfo subframe, Poo
 			} // end while
 			threshRsrp += 3; 
 		} // end do 
-		while(csrA.size() < 0.2*numCsr); // Step 7: Repeat until the size of the resulting CSR-list is greater than the 20% of the size of all CSR
-		
+		//while(csrA.size() < 0.2*numCsr); // Step 7: Repeat until the size of the resulting CSR-list is greater than the 20% of the size of all CSR
+		while(csrA.size() < ratioOfResources*numCsr); // ryu5: change 0.2 to ratioOfResources
+
 		/*std::cout << "remaining csrs " << (int) csrA.size() << std::endl; 
 		for (csrIt = csrA.begin(); csrIt != csrA.end(); csrIt++)
 		{
@@ -3421,7 +3446,8 @@ LteUeMac::GetTxResources(SidelinkCommResourcePoolV2x::SubframeInfo subframe, Poo
 		
 		for(sortedCsrIt = m_csr.begin(); sortedCsrIt != m_csr.end(); sortedCsrIt++)
 		{
-			if(csrB.size() >= 0.2*numCsr) {
+			//if(csrB.size() >= 0.2*numCsr) {
+			if(csrB.size() >= ratioOfResources*numCsr) {  // ryu5: change 0.2 to ratioOfResources
 				break;
 			}
 			else {
@@ -3443,6 +3469,7 @@ void
 LteUeMac::DoSubframeIndication (uint32_t frameNo, uint32_t subframeNo)
 {
 	NS_LOG_FUNCTION (this << " Frame no. " << frameNo << " subframe no. " << subframeNo);
+	//std::cout << "...... " << Simulator::Now () << " DoSubframeIndication" << std::endl;
 	m_frameNo = frameNo;
 	m_subframeNo = subframeNo;
 
@@ -3458,17 +3485,34 @@ LteUeMac::DoSubframeIndication (uint32_t frameNo, uint32_t subframeNo)
   	//sidelink processes
 
 	//there is a delay between the MAC scheduling and the transmission so we assume that we are ahead
+	// ryu5: this "subframeNo += 4" is because for LTE UE, scheduling is 4 subframes ahead of actual sending in PHY
+	// -> This further corresponds to the number of message lists in m_controlMessages in LteUePhy, which always has 4 elements; each SubframeIndication -> GetControlMessages removes one from beginning, and adds on at the tail.
 	subframeNo += 4;
 	if (subframeNo > 10)
 	{
 		++frameNo;
+		// ryu5
+		if (frameNo == 500) {
+			prepareToOffset = true;
+		}
+		// !ryu5
 		if (frameNo > 1024)
 		{
+			// ryu5: work on idealScheduleOffset
+			if (idealScheduled && prepareToOffset) {
+				uint32_t pRsvpInFrames = m_pRsvp / 10;
+				//std::cout << frameNo << "\t" << m_pRsvp << "\t" << (int)m_numSubchannel << std::endl;
+				idealScheduleOffset += ( pRsvpInFrames - (frameNo-1) % (pRsvpInFrames / m_numSubchannel) );  // offset is only on frameNo; has nothing to do with subframeNo or subchannel
+				while (idealScheduleOffset > pRsvpInFrames) idealScheduleOffset -= pRsvpInFrames;
+				//std::cout << "Adjusting idealScheduleOffset. New offset = " << idealScheduleOffset << std::endl;
+				prepareToOffset = false;
+			}
+			// !ryu5
 			frameNo = 1;
 		}
 		subframeNo -= 10;
 	}
-	NS_LOG_INFO (this << " Adjusted Frame no. " << frameNo << " subframe no. " << subframeNo);
+	NS_LOG_INFO (this << " Adjusted Frame no. " << frameNo << " subframe no. " << subframeNo << "\t\t m_sidelinkTxPoolsMapV2x.size(): " << m_sidelinkTxPoolsMapV2x.size() << " ... m_reselCtr: " << int(m_reselCtr) << " ... rndmStart: " << int(rndmStart) << " ... m_slHasDataToTx: " << int(m_slHasDataToTx));
 
 
   //discovery
@@ -3968,11 +4012,17 @@ LteUeMac::DoSubframeIndication (uint32_t frameNo, uint32_t subframeNo)
 		rndmStart--; // decrease counter until the value is equal to zero
 	}
 
+	//int poolID = 0;
+	double randVal = 0;
 	for(poolIt2 = m_sidelinkTxPoolsMapV2x.begin(); poolIt2 != m_sidelinkTxPoolsMapV2x.end(); poolIt2++)
 	{
-		//std::cout << frameNo << "/" << subframeNo << ", m_reselctr: " << (int) m_reselCtr << std::endl; 
-		if (m_reselCtr == 0 && rndmStart == 0)
+		//std::cout << "PoolID" << (poolID++) << " ... " << frameNo << "/" << subframeNo << ", m_reselctr: " << (int) m_reselCtr << std::endl;  // => There is just one pool...
+		//if (m_reselCtr == 0 && rndmStart == 0)
+		//if (m_reselCtr == 0 && m_reselSubCtr == 0 && rndmStart == 0) std::cout << "XXXYYYZZZ all 0 here :)" << std::endl;
+		//if (m_reselCtr == 0 && m_reselSubCtr == 0 && rndmStart == 0) // ryu5: m_reselSubCtr //<- actually should not add m_reselSubCtr; as long as m_reselCtr = 0, already finished...
+		if (m_reselCtr == 0 && rndmStart == 0) // ryu5: m_reselSubCtr
 		{				
+			//std::cout << "-------------------------------------------------- m_reselCtr = 0" << std::endl;
 			if(poolIt2->second.m_pool->GetSchedulingType() == SidelinkCommResourcePoolV2x::UE_SELECTED)
 			{
 				if (!m_slHasDataToTx)
@@ -3981,52 +4031,232 @@ LteUeMac::DoSubframeIndication (uint32_t frameNo, uint32_t subframeNo)
 				}
 
 				m_slHasDataToTx=false; 
+				
+				
+				//=====================================
+				// ryu5: Add idealScheduled case
+				if (idealScheduled) {
+					NS_ASSERT_MSG( idealScheduleResourceMap.size() > 0, "[X] LteUeMac: idealScheduled is set to true, but idealScheduleResourceMap is empty." );
+					uint32_t idxVeh = m_rnti - 1; // Heuristic way of identifying tx opportunity
 
-				m_reselCtr = GetRndmReselectionCounter(m_pRsvp); 
-				NS_LOG_DEBUG (this << "New Selected Reselection Counter = " << (int) m_reselCtr);
+					// We can set a long reselCtr
+					m_reselCtr = 10;   // Average # for easy debugging. Each pRsvp = 10 frames, and 10 repeating marks end of one schedule.
+					m_reselSubCtr = m_numCam;  // ryu5: reset m_reselSubCtr
+					NS_LOG_DEBUG (this << "New Selected Reselection Counter = " << (int) m_reselCtr << ", Subcounter = " << m_reselSubCtr);
+					
+					// Start next Tx period defined by m_pRsvp
+					uint32_t pRsvpInFrames = m_pRsvp / 10;
+					uint32_t nextStartFrame = ((frameNo-1) % pRsvpInFrames) * pRsvpInFrames + 1 + idealScheduleOffset;
+					while (nextStartFrame < frameNo && nextStartFrame <= 1024) nextStartFrame += pRsvpInFrames;
+					if (nextStartFrame == frameNo && subframeNo > 4) nextStartFrame += pRsvpInFrames; // If say the PHY layer is already past the start of the new window, go ahead to the next one
+					while (nextStartFrame > 1024) nextStartFrame -= 1024;
+					//if (idealScheduleOffset) std::cout << nextStartFrame << std::endl;
+					//uint32_t nextStartFrame = 1 + (((frameNo-1) % pRsvpInFrames) ? ((frameNo-1) / pRsvpInFrames + 1) * pRsvpInFrames : (frameNo-1)); // if not exactly at the start of a new pRsvp period, go to the next one
+					//std::cout << m_rnti << " === Current: " << frameNo << "/" << subframeNo << " | Next start: " << nextStartFrame << std::endl;
+
+					// Clear txInfosAll, save new info
+					txInfosAll.clear();
+
+					// Decode all resources in idealScheduleResourceMap, and add nextStartFrame to it
+					std::vector< uint32_t >::iterator resIt;
+					for (resIt = idealScheduleResourceMap[idxVeh].begin(); resIt != idealScheduleResourceMap[idxVeh].end(); resIt++) {
+						uint32_t resIdx = (*resIt);
+						uint32_t subchIdx = resIdx % m_numSubchannel;
+						uint32_t subframeIdx = (resIdx / m_numSubchannel) % 10;
+						uint32_t frameIdx = (resIdx / m_numSubchannel) / 10;
+
+						// Below is based on SidelinkCommResourcePoolV2x::GetCandidateResources()
+						SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo txInfoHere;
+						txInfoHere.subframe.frameNo = (nextStartFrame + frameIdx);
+						while (txInfoHere.subframe.frameNo > 1024) { txInfoHere.subframe.frameNo -= 1024; }
+						txInfoHere.subframe.subframeNo = subframeIdx + 1;
+						txInfoHere.rbStart = m_startRbSubchannel + subchIdx*m_sizeSubchannel + 2*m_adjacency; // depending on adjacency
+						txInfoHere.rbLen = m_subchLen*m_sizeSubchannel - 2*m_adjacency; // depending on adjacency
+						NS_ASSERT_MSG (txInfoHere.subframe.frameNo > 0 && txInfoHere.subframe.frameNo <= 1024 && txInfoHere.subframe.subframeNo > 0 && txInfoHere.subframe.subframeNo <= 10, 
+								"" << txInfoHere.subframe.frameNo << "/" << txInfoHere.subframe.subframeNo);
+
+						//std::cout << m_rnti << " " << txInfosAll.size() << " ---> " << txInfoHere.subframe.frameNo << "/" << txInfoHere.subframe.subframeNo << ": " << txInfoHere.rbStart << "+" << txInfoHere.rbLen << "  |  ";
+
+						txInfosAll.push_back(txInfoHere);
+					}
+					//std::cout << m_numCam << " <--> " << txInfosAll.size() << std::endl;
+
+					// // Debugging //=> Found issue. The allocated resource map is wrong!!!
+					// std::cout << "---xxx--- m_rnti=" << m_rnti << " txInfosAll: ";
+					// for (int ixx = 0; ixx < txInfosAll.size(); ixx++) {
+					// 	std::cout << txInfosAll[ixx].subframe.frameNo << "/" << txInfosAll[ixx].subframe.subframeNo << " (" << txInfosAll[ixx].rbStart << "+" << txInfosAll[ixx].rbLen << ")   ";
+					// }
+					// std::cout << std::endl;
+
+					// ryu5: Just in case, also need to initialize txInfo
+					txInfo = txInfosAll[0];
+				} else {
+
+					m_reselCtr = GetRndmReselectionCounter(m_pRsvp); 
+					m_reselSubCtr = m_numCam;  // ryu5: reset m_reselSubCtr
+					NS_LOG_DEBUG (this << "New Selected Reselection Counter = " << (int) m_reselCtr << ", Subcounter = " << m_reselSubCtr);
+
+					// if true reuse the previous resource
+					// if false calculcate new resource
+					randVal = (double) rand() / (double) RAND_MAX;
+
+					// Not idealScheduled
+					if(randVal < m_probResourceKeep && firstTx == false)
+					{
+						NS_ASSERT_MSG (m_probResourceKeep >= 0 && m_probResourceKeep <= 0.8, "Parameter probResourceKeep must be between 0 and 0.8"); 
+						//-- deprecated by ryu5
+						txInfo.subframe.subframeNo = subframeNo + (m_pRsvp-1)%10; 
+						txInfo.subframe.frameNo = frameNo + (m_pRsvp-1)/10;
+						if (txInfo.subframe.subframeNo > 10)
+						{
+							txInfo.subframe.frameNo++;
+							txInfo.subframe.subframeNo -= 10; 
+						}
+						if (txInfo.subframe.frameNo > 1024)
+						{
+							txInfo.subframe.frameNo -= 1024; 
+						}
+						//-- !deprecated by ryu5
+
+						//-------------------------------
+						// ryu5: added to txInfosAll; txInfosAll should be based on previous allocated subframe, not (current subframe-1)
+						// --> the above is deprecated after this change...
+						if (txInfosAll.empty()) txInfosAll.resize( m_numCam ); // !!! This should never be triggered... At first Tx this should have been initialized
+						// ryu5: added For loop for the number of numCams in each round
+						m_reselSubCtr = txInfosAll.size(); // might be smaller than m_numCam...
+						uint32_t pRsvpInFrames = m_pRsvp / 10;
+						for (uint32_t idxCam = 0; idxCam < txInfosAll.size(); idxCam++) {   // m_reselSubCtr = m_numCam
+							//// Deprecated: wrong code for advancing frameNo etc.
+							// bool frameNoOverflow = false;
+							// while (!frameNoOverflow && (txInfosAll[idxCam].subframe.frameNo < frameNo || (txInfosAll[idxCam].subframe.frameNo == frameNo && txInfosAll[idxCam].subframe.subframeNo < subframeNo))) {
+							// 	//txInfosAll[idxCam].subframe.frameNo += (txInfosAll[idxCam].subframe.subframeNo-1 + m_pRsvp) / 10;
+							// 	txInfosAll[idxCam].subframe.frameNo += pRsvpInFrames;  // ryu5: updated 9/28/21 - assume m_pRsvp is multiple of 10
+							// 	while (txInfosAll[idxCam].subframe.frameNo > 1024) {
+							// 		frameNoOverflow = true;
+							// 		txInfosAll[idxCam].subframe.frameNo -= 1024;
+							// 	}
+							// 	// txInfosAll[idxCam].subframe.subframeNo = (txInfosAll[idxCam].subframe.subframeNo-1 + m_pRsvp) % 10 + 1;   // ryu5: commented 9/28/21 - assume m_pRsvp is multiple of 10
+							// }
+							uint32_t curFrameNo = txInfosAll[idxCam].subframe.frameNo;
+							uint32_t nextFrameNo = curFrameNo;
+							while (true) {
+								nextFrameNo += pRsvpInFrames;
+								while (nextFrameNo > 1024) {
+									nextFrameNo -= 1024;
+								}
+								if (nextFrameNo == frameNo && txInfosAll[idxCam].subframe.subframeNo >= subframeNo) break;  // When it's within current frame, and a larger subframe...
+								if (frameNo < curFrameNo) {  // frameNo already overflowed, but curFrameNo has not
+									if (nextFrameNo < curFrameNo && nextFrameNo > frameNo) break;  // passing through, and larger than current frameNo, then going through
+								} else { // frameNo has not overflowed
+									if (nextFrameNo > frameNo) break; 		// after frameNo
+									if (nextFrameNo < curFrameNo) break;	// before curFrameNo
+								}
+							}
+							txInfosAll[idxCam].subframe.frameNo = nextFrameNo;
+							//std::cout << frameNo << "/" << subframeNo << "\t" << curFrameNo << " " << nextFrameNo << "/" << txInfosAll[idxCam].subframe.subframeNo << std::endl;
+						}
+						// !ryu5
+						//-------------------------------
+					}
+					else
+					{
+						firstTx = false; 
+						SidelinkCommResourcePoolV2x::SubframeInfo subframe; 
+						subframe.frameNo = frameNo;
+						subframe.subframeNo = subframeNo;
 
 
+						std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo>::iterator txOppsIt; // iterator for tx opportunities
+						PoolInfoV2x pool = poolIt2->second;
+						//txOpps = GetTxResources(subframe, pool); 
+						// ryu5: added ratioOfResources
+						double ratioOfResources = 0;
+						if (!pickFromMore) {
+							ratioOfResources = (double)m_numCam / m_numSubchannel / m_pRsvp;
+							//std::cout << "!pickFromMore: " << ratioOfResources << std::endl;
+						} else {
+							// ryu5: New 9/28/21 -- ratio should be defined as (20% * #CandidateResource + numCam - 1) / #CandidateResource, so that every numCam is picked from 20%.
+							std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo> csrA = pool.m_pool->GetCandidateResources(subframe, m_t1, m_t2, m_subchLen);
+							int res20 = std::ceil(0.2 * csrA.size());
+							ratioOfResources = (double)(res20 + m_numCam) / csrA.size();
+							//std::cout << "pickFromMore: " << ratioOfResources << std::endl;
+						}
+						if (ratioOfResources > 0.999) ratioOfResources = 0.999;
+						txOpps = GetTxResources(subframe, pool, ratioOfResources); 
+						// !ryu5
+						txOppsIt = txOpps.begin(); 
+
+						// std::cout << "====> txOpps.size(): " << txOpps.size() << " | m_t1/m_t2: " << (int)m_t1 << "/" << (int)m_t2 << "\t";  // txOpps=58, t1=4, t2=100
+						// std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo>::iterator txOppsItxx = txOpps.begin(); 
+						// for (int ixxx=0; ixxx<16; ixxx++) {
+						// 	std::cout << "(" << (int)txOppsItxx->subframe.frameNo << "/" << (int)txOppsItxx->subframe.subframeNo << ", " << (int)txOppsItxx->rbStart << "+" << (int)txOppsItxx->rbLen << ")  ";
+						// 	txOppsItxx++;
+						// }
+						// std::cout << std::endl;
+						
+						//-- deprecated by ryu5
+						// Walk through list until the random element is reached 
+						std::advance(txOppsIt, m_ueSelectedUniformVariable->GetInteger (0, txOpps.size()-1));
+						txInfo = *txOppsIt; 
+						//std::cout << "selected resource " << txInfo.subframe.frameNo << "/" << txInfo.subframe.subframeNo << "\t rbStart=" << (int) txInfo.rbStart << "\t rbLen=" << (int) txInfo.rbLen << std::endl; 
+						//-- !deprecated
+
+						//-------------------------------
+						// ryu5: added to txInfosAll; txInfosAll should be based on previous allocated subframe, not (current subframe-1)
+						if (txInfosAll.empty()) txInfosAll.resize( m_numCam ); // This should never be triggered... At first Tx this should have been initialized
+						std::unordered_set<uint32_t> setPickedTxOpportunities;
+						std::unordered_set<uint32_t> setPickedSubframes;
+						while (setPickedTxOpportunities.size() < m_numCam && setPickedTxOpportunities.size() < txOpps.size()) { // Get a set of random tx resources to use; assuming resources are non-overlapping (should be based on debug output of txOpps)
+							uint32_t picked = m_ueSelectedUniformVariable->GetInteger (0, txOpps.size()-1);
+							
+							txOppsIt = txOpps.begin(); 
+							std::advance(txOppsIt, picked);
+							SidelinkCommResourcePoolV2x::SubframeInfo subframe = txOppsIt->subframe;
+							uint32_t subframe_hash = subframe.frameNo * 10 + subframe.subframeNo;
+
+							//if (setPickedSubframes.find(subframe_hash) != setPickedSubframes.end()) continue;  // ryu5: Make sure even subframe should not overlap...
+							setPickedSubframes.insert(subframe_hash);
+							setPickedTxOpportunities.insert(picked);
+						}
+						if (setPickedTxOpportunities.size() < m_numCam) {
+							m_reselSubCtr = setPickedTxOpportunities.size();
+							txInfosAll.resize( setPickedTxOpportunities.size() );
+							skippedTx += (m_numCam - setPickedTxOpportunities.size()) * m_reselCtr;
+							NS_LOG_INFO("LteUeMac: Skipping some packets in numCam due to insufficient Tx opportunities.");
+						}
+						std::unordered_set<uint32_t>::iterator pickedIt = setPickedTxOpportunities.begin();
+						for (uint32_t idxCam = 0; idxCam < setPickedTxOpportunities.size(); idxCam++) {   // for each picked resource, assign it to the corresponding txInfosAll
+							txOppsIt = txOpps.begin(); 
+							std::advance(txOppsIt, (*pickedIt));
+							pickedIt++;
+							txInfosAll[idxCam] = *txOppsIt;
+						}
+						uint16_t pRsvp = m_pRsvp;
+						std::sort(txInfosAll.begin(), txInfosAll.end(), 
+								[pRsvp](const SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo & a, const SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo & b){
+									uint32_t aframeNo = a.subframe.frameNo, bframeNo = b.subframe.frameNo;
+									if ((int)aframeNo - (int)bframeNo < pRsvp && (int)bframeNo - (int)aframeNo < pRsvp) { // non-overflowing
+										return (aframeNo < bframeNo || (aframeNo == bframeNo && a.subframe.subframeNo < b.subframe.subframeNo));
+									}
+									return (aframeNo > bframeNo); // overflowing case: the larger value actually correspond to earlier slot
+									//return (a.subframe.frameNo < b.subframe.frameNo || (a.subframe.frameNo == b.subframe.frameNo && a.subframe.subframeNo < b.subframe.subframeNo));
+								});
+						// std::cout << "---xxx--- ";
+						// for (int iii = 0; iii < txInfosAll.size(); iii++) std::cout << txInfosAll[iii].subframe.frameNo << "/" << txInfosAll[iii].subframe.subframeNo << "\t";
+						// std::cout << std::endl;
+						//std::cout << "---xxx--- " << txInfosAll[0].subframe.frameNo << "/" << txInfosAll[0].subframe.subframeNo << "\t" << txInfosAll[1].subframe.frameNo << "/" << txInfosAll[1].subframe.subframeNo << std::endl;
+						//std::cout << "txOpps.size() = " << txOpps.size() << "\t setPickedTxOpportunities.size() = " << setPickedTxOpportunities.size() << std::endl; // txOpps.size() is almost always 20% * #slots in pRsvp
+						// !ryu5
+						//-------------------------------
+					}
+				} // !ryu5: idealScheduled
+
+				// moved here by ryu5; was before previous if-else
 				SidelinkGrantV2x grant; 
 				grant.m_prio = 0; 
 				grant.m_pRsvp = m_pRsvp; 
-				
-				// if true reuse the previous resource
-				// if false calculcate new resource
-				double randVal = (double) rand() / (double) RAND_MAX;
-				if(randVal < m_probResourceKeep && firstTx == false)
-				{
-					NS_ASSERT_MSG (m_probResourceKeep >= 0 && m_probResourceKeep <= 0.8, "Parameter probResourceKeep must be between 0 and 0.8"); 
-					txInfo.subframe.subframeNo = subframeNo + (m_pRsvp-1)%10; 
-					txInfo.subframe.frameNo = frameNo + (m_pRsvp-1)/10;
-					if (txInfo.subframe.subframeNo > 10)
-					{
-						txInfo.subframe.frameNo++;
-						txInfo.subframe.subframeNo -= 10; 
-					}
-					if (txInfo.subframe.frameNo > 1024)
-					{
-						txInfo.subframe.frameNo -= 1024; 
-					}
-				}
-				else
-				{
-					firstTx = false; 
-					SidelinkCommResourcePoolV2x::SubframeInfo subframe; 
-					subframe.frameNo = frameNo;
-					subframe.subframeNo = subframeNo; 
 
-					std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo>::iterator txOppsIt; // iterator for tx opportunities
-					PoolInfoV2x pool = poolIt2->second;
-					txOpps = GetTxResources(subframe, pool); 
-					txOppsIt = txOpps.begin(); 
-					
-					// Walk through list until the random element is reached 
-					std::advance(txOppsIt, m_ueSelectedUniformVariable->GetInteger (0, txOpps.size()-1));
-					txInfo = *txOppsIt; 
-					//std::cout << "selected resource " << txInfo.subframe.frameNo << "/" << txInfo.subframe.subframeNo << "\t rbStart=" << (int) txInfo.rbStart << "\t rbLen=" << (int) txInfo.rbLen << std::endl; 
-				}
-
-				if(m_v2xHarqEnabled)
+				if(m_v2xHarqEnabled) //-- deprecated by ryu5: Not implemente right now since HARQ is disabled by default.
 				{	
 					std::list<SidelinkTransmissionInfoExtended> reTxOpps; 	
 					SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo reTxInfo; // TransmissionInfo of retransmission resource
@@ -4054,7 +4284,7 @@ LteUeMac::DoSubframeIndication (uint32_t frameNo, uint32_t subframeNo)
 				{
 					grant.m_sfGap = 0; 
 					grant.m_reTxIdx = 0; 
-					grant.m_riv = CalcRiv(m_subchLen,0);  
+					grant.m_riv = CalcRiv(m_subchLen,0);  // LteUeMac::CalcRiv(uint8_t lSubch, uint8_t startSubchIdx); // Always starting from startSubchIdx=0?
 				}
 
 				if (m_adjacency) 
@@ -4065,12 +4295,40 @@ LteUeMac::DoSubframeIndication (uint32_t frameNo, uint32_t subframeNo)
 				{
 					grant.m_resPscch = txInfo.rbStart / m_sizeSubchannel; 
 				}
-				grant.m_mcs = m_slGrantMcs; 
+				grant.m_mcs = m_slGrantMcs;  // modulation coding scheme
 				grant.m_tbSize = 0; // computed later 
 				poolIt2->second.m_nextGrant = grant;
-				poolIt2->second.m_grant_received = true; 	
+				poolIt2->second.m_grant_received = true;
 				//std::cout << "UE selected grant: SubchannelLength=" << (uint16_t) m_subchLen << ", PscchResource=" << (int) grant.m_resPscch << ", MCS=" << (int) grant.m_mcs << ", SfGap=" << (int) grant.m_sfGap << ", Retransmissionindex=" << (int) grant.m_reTxIdx << std::endl; 
 				NS_LOG_INFO (this << " UE selected grant: SubchannelLength=" << (uint16_t) m_subchLen << ", PscchResource=" << (int) grant.m_resPscch << ", MCS=" << (int) grant.m_mcs << ", SfGap=" << (int) grant.m_sfGap << ", Retransmissionindex=" << (int) grant.m_reTxIdx); 
+			
+				
+				//-------------------------------
+				// ryu5: added to m_nextGrantsAll
+				poolIt2->second.m_grant_received = true;
+				if (poolIt2->second.m_nextGrantsAll.empty()) poolIt2->second.m_nextGrantsAll.resize(txInfosAll.size());
+				for (uint32_t idxCam = 0; idxCam < txInfosAll.size(); idxCam++) {   // for each picked resource, assign it to the corresponding txInfosAll
+					SidelinkGrantV2x grantIdxCam; 
+					grantIdxCam.m_prio = 0; 
+					grantIdxCam.m_pRsvp = m_pRsvp; 
+					// No HARQ
+					grantIdxCam.m_sfGap = 0; 
+					grantIdxCam.m_reTxIdx = 0; 
+					grantIdxCam.m_riv = CalcRiv(m_subchLen,0);  // LteUeMac::CalcRiv(uint8_t lSubch, uint8_t startSubchIdx); // Always starting from startSubchIdx=0?
+					//!No HARQ
+					// PSCCH
+					grantIdxCam.m_resPscch = (txInfosAll[idxCam].rbStart-2*m_adjacency)/m_sizeSubchannel;
+					grantIdxCam.m_mcs = m_slGrantMcs;  // modulation coding scheme
+					grantIdxCam.m_tbSize = 0; // computed later 
+					//-> Add grant to m_nextGrantsAll
+					poolIt2->second.m_nextGrantsAll[idxCam] = grantIdxCam;
+
+					NS_LOG_INFO (this << " UE selected grants [ryu5]: SubchannelLength=" << (uint16_t) m_subchLen 
+									<< ", PscchResource=" << (int) grantIdxCam.m_resPscch << ", MCS=" << (int) grantIdxCam.m_mcs 
+									<< ", SfGap=" << (int) grantIdxCam.m_sfGap << ", Retransmissionindex=" << (int) grantIdxCam.m_reTxIdx); 
+				}
+				// !ryu5
+				//-------------------------------
 			}
 			//if we received a grant, compute the transmission for PSCCH and PSSCH
 			if(poolIt2->second.m_grant_received)
@@ -4079,7 +4337,12 @@ LteUeMac::DoSubframeIndication (uint32_t frameNo, uint32_t subframeNo)
 				poolIt2->second.m_currentGrant = poolIt2->second.m_nextGrant;
 
 				NS_LOG_INFO (this << " Sidelink grant received resource " << (uint32_t) poolIt2->second.m_currentGrant.m_resPscch);
-				
+
+				// ryu5
+				poolIt2->second.m_currentGrantsAll = poolIt2->second.m_nextGrantsAll;
+				NS_LOG_INFO (this << " Sidelink grant received many [ryu5] resources. # resources = " << (uint32_t) poolIt2->second.m_currentGrantsAll.size());
+
+				//--==-- TODO [ryu5]: Add the following stats for m_currentGrantsAll
 				// Collect statistics for SL UE mac scheduling trace
 				SlUeMacStatParametersV2x stats_params; 
 				stats_params.m_frameNo = frameNo; 
@@ -4088,7 +4351,7 @@ LteUeMac::DoSubframeIndication (uint32_t frameNo, uint32_t subframeNo)
 				stats_params.m_cellId = 0;
 				stats_params.m_imsi = 0; 
 				stats_params.m_txFrame = 0;
-				stats_params.m_txSubframe = 0;  
+				stats_params.m_txSubframe = 0;
 
 				std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo>::iterator txIt;
 				poolIt2->second.m_pscchTx = poolIt2->second.m_pool->GetPscchTransmissions(txInfo.subframe,poolIt2->second.m_currentGrant.m_riv,poolIt2->second.m_currentGrant.m_pRsvp,poolIt2->second.m_currentGrant.m_sfGap,poolIt2->second.m_currentGrant.m_reTxIdx,poolIt2->second.m_currentGrant.m_resPscch,m_reselCtr);
@@ -4121,6 +4384,13 @@ LteUeMac::DoSubframeIndication (uint32_t frameNo, uint32_t subframeNo)
 					poolIt2->second.m_currentGrant.m_tbSize = m_amc->GetUlTbSizeFromMcs(poolIt2->second.m_currentGrant.m_mcs, m_subchLen*m_sizeSubchannel) / 8; 
 				}
 				NS_LOG_INFO ("Sidelink Tb size = " << poolIt2->second.m_currentGrant.m_tbSize << " bytes (mcs=" << (uint32_t) poolIt2->second.m_currentGrant.m_mcs << ")");
+				// std::cout << "-=-=-=-=-=- m_subchLen: " << (int)m_subchLen  // 1
+				// 			<< " | m_sizeSubchannel: " << (int)m_sizeSubchannel  // from main()
+				// 			<< " | m_startRbSubchannel: " << (int)m_startRbSubchannel   // from main()
+				// 			<< " | m_numSubchannel: " << (int)m_numSubchannel   // from main()
+				// 			<< " | m_pRsvp: " << (int)m_pRsvp  // 100, from main()
+				// 			<< " | m_rnti: " << (int)m_rnti   // idxVeh + 1
+				// 			<< std::endl;
 				
 				stats_params.m_rnti = m_rnti;
 				stats_params.m_mcs = poolIt2->second.m_currentGrant.m_mcs;
@@ -4130,6 +4400,76 @@ LteUeMac::DoSubframeIndication (uint32_t frameNo, uint32_t subframeNo)
 
 				// Call trace
 				m_slUeSchedulingV2x(stats_params);
+				//--==-- !TODO
+
+
+				//-------------------------------
+				// ryu5: work on the grants
+				if (poolIt2->second.m_pscchTxsAll.empty()) poolIt2->second.m_pscchTxsAll.resize(txInfosAll.size());
+				if (poolIt2->second.m_psschTxsAll.empty()) poolIt2->second.m_psschTxsAll.resize(txInfosAll.size());
+				for (uint32_t idxCam = 0; idxCam < txInfosAll.size(); idxCam++) {
+					poolIt2->second.m_pscchTxsAll[idxCam] = poolIt2->second.m_pool->GetPscchTransmissions(txInfosAll[idxCam].subframe,
+																											poolIt2->second.m_currentGrantsAll[idxCam].m_riv,
+																											poolIt2->second.m_currentGrantsAll[idxCam].m_pRsvp,
+																											poolIt2->second.m_currentGrantsAll[idxCam].m_sfGap,
+																											poolIt2->second.m_currentGrantsAll[idxCam].m_reTxIdx,
+																											poolIt2->second.m_currentGrantsAll[idxCam].m_resPscch,
+																											m_reselCtr);
+					poolIt2->second.m_psschTxsAll[idxCam] = poolIt2->second.m_pool->GetPsschTransmissions(txInfosAll[idxCam].subframe,
+																											poolIt2->second.m_currentGrantsAll[idxCam].m_riv,
+																											poolIt2->second.m_currentGrantsAll[idxCam].m_pRsvp,
+																											poolIt2->second.m_currentGrantsAll[idxCam].m_sfGap,
+																											poolIt2->second.m_currentGrantsAll[idxCam].m_reTxIdx,
+																											poolIt2->second.m_currentGrantsAll[idxCam].m_resPscch,
+																											m_reselCtr);
+					poolIt2->second.m_currentGrantsAll[idxCam].m_tbSize = m_amc->GetUlTbSizeFromMcs(poolIt2->second.m_currentGrantsAll[idxCam].m_mcs, m_subchLen*m_sizeSubchannel-2*m_adjacency) / 8; 
+					// --> From here it is confirmed that pscch and pssch are always on the same subframe
+					// std::cout << "==xx== "  << (poolIt2->second.m_pscchTxsAll[idxCam].begin())->subframe.frameNo << "/" << (poolIt2->second.m_pscchTxsAll[idxCam].begin())->subframe.subframeNo << "\t"
+					// 						<< (poolIt2->second.m_psschTxsAll[idxCam].begin())->subframe.frameNo << "/" << (poolIt2->second.m_psschTxsAll[idxCam].begin())->subframe.subframeNo << "\t" << "|\t"
+					// 						<< std::next(poolIt2->second.m_pscchTxsAll[idxCam].begin())->subframe.frameNo << "/" << std::next(poolIt2->second.m_pscchTxsAll[idxCam].begin())->subframe.subframeNo << "\t"
+					// 						<< std::next(poolIt2->second.m_psschTxsAll[idxCam].begin())->subframe.frameNo << "/" << std::next(poolIt2->second.m_psschTxsAll[idxCam].begin())->subframe.subframeNo << "\t"
+					// 						<< std::endl;
+				}
+				// Debug output: it is correct here, every txInfo repeated for every 10 frames.
+				// std::cout << m_rnti << " x> " << poolIt2->second.m_pscchTxsAll[0].size() << ": ";
+				// std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo>::iterator debugIt;
+				// for (debugIt = poolIt2->second.m_pscchTxsAll[0].begin(); debugIt != poolIt2->second.m_pscchTxsAll[0].end(); debugIt++) {
+				// 	std::cout << (*debugIt).subframe.frameNo << "/" << (*debugIt).subframe.subframeNo << std::endl;
+				// }
+
+				// ryu5: reorganize m_pscchTx and m_psschTx based on Tx opportunities for all numCam
+				// -> Assumption: since within txInfosAll[idxCam], they are all sorted by frameNo/subframeNo, we are here simply adding in the order of idxCam
+				//if (m_numCam > 1) {
+					poolIt2->second.m_pscchTx.clear();
+					poolIt2->second.m_psschTx.clear();
+					int hasMoreTxToAdd = txInfosAll.size(); // number of numCam that has more tx in the queue
+					std::vector< std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo>::iterator > pscchIts (txInfosAll.size());
+					std::vector< std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo>::iterator > psschIts (txInfosAll.size());
+					for (uint32_t idxCam = 0; idxCam < txInfosAll.size(); idxCam++) {
+						pscchIts[idxCam] = poolIt2->second.m_pscchTxsAll[idxCam].begin();
+						psschIts[idxCam] = poolIt2->second.m_psschTxsAll[idxCam].begin();
+					}
+					//if (frameNo > 900 || frameNo < 300) std::cout << "--- " << frameNo << "/" << subframeNo << " | m_rnti = " << m_rnti << "\t Reselection Counter = " << (int)m_reselCtr << "\t randVal = " << randVal << std::endl;
+					while (hasMoreTxToAdd) { 
+						for (uint32_t idxCam = 0; idxCam < txInfosAll.size(); idxCam++) {
+							if ( pscchIts[idxCam] != poolIt2->second.m_pscchTxsAll[idxCam].end() && psschIts[idxCam] != poolIt2->second.m_psschTxsAll[idxCam].end() ) {
+								//if (frameNo > 900 || frameNo < 300) 
+								//	std::cout << (*(psschIts[idxCam])).subframe.frameNo << "/" << (*(psschIts[idxCam])).subframe.subframeNo << "\t";  //<< " " << (int)(*(psschIts[idxCam])).rbStart << "+" << (int)(*(psschIts[idxCam])).rbLen << "\t";
+								poolIt2->second.m_pscchTx.push_back( (*(pscchIts[idxCam])) );
+								pscchIts[idxCam]++;
+								poolIt2->second.m_psschTx.push_back( (*(psschIts[idxCam])) );
+								psschIts[idxCam]++;
+								if ( pscchIts[idxCam] == poolIt2->second.m_pscchTxsAll[idxCam].end() || psschIts[idxCam] == poolIt2->second.m_psschTxsAll[idxCam].end() ) {
+									hasMoreTxToAdd --; // if it gets processed and reaches the end, then reduce number
+								}
+							}
+						}
+						//if (frameNo > 900 || frameNo < 300) std::cout << std::endl;
+					}
+					//std::cout << std::endl << std::endl;
+				//}
+				// !ryu5
+				//-------------------------------
 
 				// clear the grant
 				poolIt2->second.m_grant_received = false;
@@ -4142,14 +4482,38 @@ LteUeMac::DoSubframeIndication (uint32_t frameNo, uint32_t subframeNo)
 		allocItPscch = poolIt2->second.m_pscchTx.begin(); 
 		std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo>::iterator allocItPssch;
 		allocItPssch = poolIt2->second.m_psschTx.begin(); 
+		//if (rndmStart == 0) std::cout << "xxxxx poolIt2->second.m_psschTx.size(): " << poolIt2->second.m_psschTx.size() << std::endl; //< This size is equal to how many is reserved at each UE... Every time we transmit one below, we erase one...
 
 		// check if we need to transmit PSCCH + PSSCH
-		if(allocItPscch != poolIt2->second.m_pscchTx.end() && (*allocItPscch).subframe.frameNo == frameNo && (*allocItPscch).subframe.subframeNo == subframeNo && allocItPssch != poolIt2->second.m_psschTx.end() && (*allocItPssch).subframe.frameNo == frameNo && (*allocItPssch).subframe.subframeNo == subframeNo)
+		//if(allocItPscch != poolIt2->second.m_pscchTx.end() && (*allocItPscch).subframe.frameNo == frameNo && (*allocItPscch).subframe.subframeNo == subframeNo && allocItPssch != poolIt2->second.m_psschTx.end() && (*allocItPssch).subframe.frameNo == frameNo && (*allocItPssch).subframe.subframeNo == subframeNo)
+		//---- ryu5: for loop instead of the if statement
+		uint32_t numTxPerSubframe = 0;
+		while(allocItPscch != poolIt2->second.m_pscchTx.end() && (*allocItPscch).subframe.frameNo == frameNo && (*allocItPscch).subframe.subframeNo == subframeNo && 
+				allocItPssch != poolIt2->second.m_psschTx.end() && (*allocItPssch).subframe.frameNo == frameNo && (*allocItPssch).subframe.subframeNo == subframeNo)
 		{
-			//decrease reselection counter
-			m_reselCtr--; 
+			//==========> ryu5: We do not do this here, but instead at the end, simply to help working with m_reselSubCtr and idxCam
+			// ////decrease reselection counter
+			// //m_reselCtr--; 
+			// // ryu5: every m_reselCtr means a total of numCam messages needed to be sent, counted in m_reselSubCtr
+			// m_reselSubCtr --;
+			// if (m_reselSubCtr == 0 && m_reselCtr > 0) {
+			// 	m_reselCtr --;
+			// 	m_reselSubCtr = m_numCam;
+			// }
+
+			//------------------------------
+			// ryu5: redefine m_currentGrant :)
+			//uint32_t idxCam = m_numCam - m_reselSubCtr;  // simply way of calculating which idxCam this should be...
+			uint32_t idxCam = txInfosAll.size() - m_reselSubCtr;
+			//if (txInfosAll.size() > 1) {
+				poolIt2->second.m_currentGrant = poolIt2->second.m_currentGrantsAll[idxCam];	// use the corresponding m_currentGrantsAll as the current grant
+			//}
+			// Debug: this is no longer an issue; we can accommodate when one vehicle takes more than 1 slot in a subframe.
+			numTxPerSubframe ++;
+			//if (numTxPerSubframe > 1) std::cout << "[XXX] Entering more than 1 transmissions in this subframe " << frameNo << "/" << subframeNo << ": " << numTxPerSubframe << std::endl;
+			// !ryu5
+			//------------------------------
 			
-			NS_LOG_INFO (this << " New PSCCH transmission");
 			// create SCI-1 message
 			SciListElementV2x sci1;
 			sci1.m_rnti = m_rnti; 
@@ -4164,7 +4528,14 @@ LteUeMac::DoSubframeIndication (uint32_t frameNo, uint32_t subframeNo)
 
 			Ptr<SciLteControlMessageV2x> msg = Create<SciLteControlMessageV2x> (); 
 			msg->SetSci (sci1); 
+			// ryu5
+			msg->m_idxCam = idxCam;
+			//std::cout << "tbSize = " << poolIt2->second.m_currentGrant.m_tbSize << std::endl; // ryu5: tbSize
+			// !ryu5
 			m_sidelinkV2xAnnouncementTrace(); 
+			// ryu5
+			nPktsTxed += 1;
+			// !ryu5
 			m_uePhySapProvider->SendLteControlMessage (msg); 
 			poolIt2->second.m_pscchTx.erase (allocItPscch); 
 
@@ -4192,7 +4563,7 @@ LteUeMac::DoSubframeIndication (uint32_t frameNo, uint32_t subframeNo)
 				if (itBsr->first.dstL2Id == poolIt2->first)
 				{
 					//this is the BSR for the pool
-					std::map <SidelinkLcIdentifier, LcInfo>::iterator it = m_slLcInfoMap.find (itBsr->first);
+					std::map <SidelinkLcIdentifier, LcInfo>::iterator it = m_slLcInfoMap.find (itBsr->first); // logical channel info
 					//for sidelink we should never have retxQueueSize since it is unacknowledged mode
 					//we still keep the process similar to uplink to be more generic (and maybe handle
 					//future modifications)
@@ -4205,6 +4576,7 @@ LteUeMac::DoSubframeIndication (uint32_t frameNo, uint32_t subframeNo)
 						m_cmacSapUser->NotifyMacHasSlDataToSend();
 
 						NS_ASSERT ((*itBsr).second.statusPduSize == 0 && (*itBsr).second.retxQueueSize == 0);
+						//std::cout << "(*itBsr).second.statusPduSize = " << (int)(*itBsr).second.statusPduSize << " | (*itBsr).second.retxQueueSize = " << (int)(*itBsr).second.retxQueueSize << std::endl; //=> all 0
 
 						uint32_t bytesForThisLc = poolIt2->second.m_currentGrant.m_tbSize;
 						NS_LOG_LOGIC(this << "RNTI " << m_rnti << " Sidelink Tx " << bytesForThisLc << " bytes to LC " << (uint32_t)(*itBsr).first.lcId << " statusQueue " << (*itBsr).second.statusPduSize << " retxQueue" << (*itBsr).second.retxQueueSize << " txQueue" << (*itBsr).second.txQueueSize);
@@ -4275,6 +4647,23 @@ LteUeMac::DoSubframeIndication (uint32_t frameNo, uint32_t subframeNo)
 				}
 			}
 			poolIt2->second.m_psschTx.erase (allocItPssch);
+
+			
+			////decrease reselection counter
+			//m_reselCtr--; 
+			// ryu5: every m_reselCtr means a total of numCam messages needed to be sent, counted in m_reselSubCtr
+			m_reselSubCtr --;
+			if (m_reselSubCtr == 0 && m_reselCtr > 0) {
+				m_reselCtr --;
+				m_reselSubCtr = txInfosAll.size();
+			}
+			NS_LOG_INFO (this << " New PSCCH transmission, m_reselCtr = " << int(m_reselCtr) << ", m_reselSubCtr = " << int(m_reselSubCtr)); // ryu5: m_reselSubCtr
+			//std::cout << " New PSCCH transmission, m_rnti = " << (int)m_rnti << ", m_reselCtr = " << int(m_reselCtr) << ", m_reselSubCtr = " << int(m_reselSubCtr) << std::endl; // ryu5: m_reselSubCtr
+			// => m_rnti = 1 to 10 (for numVeh = 10)
+
+			// ryu5: advance alloc iterators; since previous ones were erased, we get the new begin()s
+			allocItPscch = poolIt2->second.m_pscchTx.begin();
+			allocItPssch = poolIt2->second.m_psschTx.begin();
 		}
 	}
 }

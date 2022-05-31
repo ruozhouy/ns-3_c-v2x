@@ -217,6 +217,12 @@ private:
    * Traced callback for SpectrumSignalParameters in StartTx requests
    */
   TracedCallback<Ptr<SpectrumSignalParameters> > m_txSigParamsTrace;
+
+  // ryu5: debug info
+public:
+  static uint32_t nPktsTxed;
+private:
+  // !ryu5
 };
 
 

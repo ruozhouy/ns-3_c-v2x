@@ -60,8 +60,15 @@ Ptr<OutputStreamWrapper> log_tx_data;
 // Global variables
 uint32_t ctr_totRx = 0; 	// Counter for total received packets
 uint32_t ctr_totTx = 0; 	// Counter for total transmitted packets
+uint32_t numVeh;
 uint16_t lenCam;  
+uint16_t pRsvp;
 double baseline= 150.0;     // Baseline distance in meter (150m for urban, 320m for freeway)
+
+uint32_t nPkt = 1;    // ryu5: # packets to send per burst
+uint32_t numCam = 1;  // ryu5: # CAM messages per RRI
+bool     idealScheduled = false;    // ryu5: do we use ideal scheduling?
+bool     pickFromMore = false;      // ryu5: do we pick from more than 20% resources?
 
 // Responders users 
 NodeContainer ueVeh;
@@ -88,8 +95,48 @@ PrintStatus (uint32_t s_period, Ptr<OutputStreamWrapper> log_simtime)
     {
         ctr_totRx = ctr_totTx; 
     }
-	*log_simtime->GetStream() << Simulator::Now ().GetSeconds () << ";" << ctr_totRx << ";" << ctr_totTx << ";" << (double) ctr_totRx / ctr_totTx << std::endl; 
-    std::cout << "t=" <<  Simulator::Now().GetSeconds() << "\t Rx/Tx="<< ctr_totRx << "/" << ctr_totTx << "\t PRR=" << (double) ctr_totRx / ctr_totTx << std::endl;
+
+    // ryu5: compute some values
+    double t = Simulator::Now ().GetSeconds (); // ryu5
+	*log_simtime->GetStream() << t << ";" << ctr_totRx << ";" << ctr_totTx << ";" << (double) ctr_totRx / ctr_totTx << std::endl; 
+    double thruputPerVeh = (double)lenCam * 8 * numCam * ((double) ctr_totRx / (ctr_totTx + LteUeMac::skippedTx*(numVeh-1))) * 1000 / pRsvp / 1000;  // Take into account skipped Txs
+
+    uint32_t collisionEvent = 0, collisionCount = 0;
+    for (std::map<uint32_t, uint32_t>::iterator stmit = LteUePhy::subframeTxMap.begin(); stmit != LteUePhy::subframeTxMap.end(); stmit ++) {
+        if (stmit->second > 1) {
+            collisionEvent += 1;
+            collisionCount += stmit->second;
+        }
+    }
+    double collisionRatio = 0;
+    if (ctr_totTx / (numVeh - 1) > 0) {
+        collisionRatio = 1.0 * collisionCount / ( ctr_totTx / (numVeh - 1) );
+        //collisionRatio = 1.0 * collisionEvent / ( ctr_totTx / (numVeh - 1) );
+    }
+
+    std::cout << "t=" << t 
+                << "\t Rx/Tx="<< ctr_totRx << "/" << ctr_totTx 
+                << "\t PRR=" << (double) ctr_totRx / ctr_totTx 
+                << "\t Veh. thruput. = " << thruputPerVeh << " kbps" // lenCam is per pRsvp ms, this is translating to Kbps.
+                << "\t All thruput. = " << thruputPerVeh * numVeh / 1000 << " mbps" 
+                << " or " << (double)ctr_totRx / (numVeh-1) * lenCam * 8 / (Simulator::Now().GetSeconds() - 3) / 1000000 << " mbps" //< This should be the most accurate measure.
+                << "\t Skipped Tx = " << LteUeMac::skippedTx
+                << "\t Collision event = " << collisionEvent
+                << "\t Collision count = " << collisionCount
+                << "\t Collision ratio = " << collisionRatio
+                << std::endl;
+    if (t == 3) {
+        ctr_totRx = ctr_totTx = 0;
+        LteUeMac::skippedTx = 0; // also reset this...
+        LteUePhy::subframeTxMap.clear(); // also reset this...
+        NS_LOG_INFO("Reset Tx/Rx counter after t=3 for accurate throughput computation.");
+    }
+    // std::cout << "  -> LteUeMac::nPktsTxed = " << LteUeMac::nPktsTxed 
+    //         << " | " << "LteUePhy::nPktsTxed = " << LteUePhy::nPktsTxed 
+    //         << " | " << "MultiModelSpectrumChannel::nPktsTxed = " << MultiModelSpectrumChannel::nPktsTxed 
+    //         << " | " << "LteSpectrumPhy::nPktsRxed = " << LteSpectrumPhy::nPktsRxed 
+    //         << " | " << "LteSpectrumPhy::nPktsCrpt = " << LteSpectrumPhy::nPktsCrpt 
+    //         << std::endl; //< All MAC pushed are transmitted by PHY; but some are not received...
     Simulator::Schedule(Seconds(s_period), &PrintStatus, s_period,log_simtime);
 }
 
@@ -111,15 +158,20 @@ SidelinkV2xAnnouncementMacTrace(Ptr<Socket> socket)
         double distance = sqrt(pow((posTx.x - posRx.x),2.0)+pow((posTx.y - posRx.y),2.0));
         if  (distance > 0 && distance <= baseline)
         {
-            ctr_totTx++;
+            // ctr_totTx++;
+            ctr_totTx += nPkt;
         }
     }
     // Generate CAM 
     std::ostringstream msgCam;
     msgCam << id-1 << ";" << simTime << ";" << (int) posTx.x << ";" << (int) posTx.y << '\0'; 
     Ptr<Packet> packet = Create<Packet>((uint8_t*)msgCam.str().c_str(),lenCam);
-    socket->Send(packet);
+    // socket->Send(packet);
+    for (uint32_t i=0; i<nPkt; i++) {
+        socket->Send(packet);
+    }
     *log_tx_data->GetStream() << ctr_totTx << ";" << simTime << ";"  << id-1 << ";" << (int) posTx.x << ";" << (int) posTx.y << std::endl;
+    //NS_LOG_INFO( "t=" <<  Simulator::Now().GetSeconds() << "\t Sending by " << id );
 }
 
 static void
@@ -172,22 +224,28 @@ main (int argc, char *argv[])
     // NOTE: commandline parser is currently (05.04.2019) not working for uint8_t (Bug 2916)
 
     uint16_t simTime = 100;                 // Simulation time in seconds
-    uint32_t numVeh = 100;                  // Number of vehicles
+    numVeh = 100;                           // Number of vehicles
     lenCam = 190;                           // Length of CAM message in bytes [50-300 Bytes]
     double ueTxPower = 23.0;                // Transmission power in dBm
-    double probResourceKeep = 0.0;          // Probability to select the previous resource again [0.0-0.8]
+    double probResourceKeep = 0.8;          // Probability to select the previous resource again [0.0-0.8]
     uint32_t mcs = 20;                      // Modulation and Coding Scheme
     bool harqEnabled = false;               // Retransmission enabled 
     bool adjacencyPscchPssch = true;        // Subchannelization scheme
     bool partialSensing = false;            // Partial sensing enabled (actual only partialSensing is false supported)
-    uint16_t sizeSubchannel = 10;           // Number of RBs per subchannel
-    uint16_t numSubchannel = 3;             // Number of subchannels per subframe
+    uint16_t sizeSubchannel = 10;           // Number of RBs per subchannel // adjacency: [5, 6, 10, 20, 25, 50, 75, 100]; non-adjacency: [4, 5, 6, 8, 9, 10, 12, 16, 18, 20, 30, 48, 72, 96]
+    uint16_t numSubchannel = 3;             // Number of subchannels per subframe // [1, 3, 5, 8, 10, 15, 20]
     uint16_t startRbSubchannel = 0;         // Index of first RB corresponding to subchannelization
-    uint16_t pRsvp = 100;				    // Resource reservation interval 
+    pRsvp = 100;				    // Resource reservation interval 
     uint16_t t1 = 4;                        // T1 value of selection window
     uint16_t t2 = 100;                      // T2 value of selection window
     uint16_t slBandwidth;                   // Sidelink bandwidth
     std::string tracefile;                  // Name of the tracefile 
+    // ryu5: # pkts per burst []
+    nPkt = 1;
+    // ryu5: # CAM messages per RRI
+    numCam = 1;
+    // ryu5: do we use ideal scheduling?
+    idealScheduled = false;
 
     // Command line arguments
     CommandLine cmd;
@@ -210,7 +268,105 @@ main (int argc, char *argv[])
     cmd.AddValue ("log_tx_data", "name of the tx data logfile", tx_data);
     cmd.AddValue ("tracefile", "Path of ns-3 tracefile", tracefile); 
     cmd.AddValue ("baseline", "Distance in which messages are transmitted and must be received", baseline);
+    // ryu5: nPkt
+    cmd.AddValue ("nPkt", "Number of packets to send per burst", nPkt);
+    // ryu5: numCam
+    // -> This is the correct mode of transmitting more packets. 
+    // -> To do a reasonable simulation, we should set nPkt above as 1, adjust
+    // -> the lenCam above to maximum value of 400 bytes (or 405), and then 
+    // -> adjust this numCam parameters for the actual data size in one RRI.
+    // ** Maximum lenCam depends on sizeSubchannel.
+    // ** When sizeSubchannel = 25, max lenCam = 1207.
+    // ** When sizeSubchannel =  5, max lenCam =  129
+    cmd.AddValue ("numCam", "Number of CAM messages per RRI", numCam);
+    // ryu5: idealScheduled?
+    cmd.AddValue ("idealScheduled", "Do we use ideal scheduling? (Default = false)", idealScheduled);
+    // ryu5: pick numCam from 20%, or (20+numCam)%? => Depending on implementation of Sensing-based SPS
+    cmd.AddValue ("pickFromMore", "Do we modify SPS to pick numCam from more resources (Default = false)", pickFromMore);
     cmd.Parse (argc, argv);
+
+    // ryu5: output important values
+    NS_LOG_INFO ("- idealScheduled " << idealScheduled);
+    NS_LOG_INFO ("- numVeh " << numVeh);
+    NS_LOG_INFO ("- numCam " << numCam);
+    NS_LOG_INFO ("- sizeSubchannel " << sizeSubchannel);
+    NS_LOG_INFO ("- numSubchannel " << numSubchannel);
+
+    // ryu5: obtaining maximum tbSize => This is accurate, verifying with the above values (25 -> 1207 B, 10 -> 405 B, 5 -> 129 B)
+    uint32_t subchLen = 1; // LteUeMac; length of a subchannel in ms / subframe?
+    uint32_t nprb = subchLen*sizeSubchannel - 2 * adjacencyPscchPssch; // LteUeMac::DoSubframeIndication()
+    int itbs = LteAmc::McsToItbsUl[mcs]; // LteAmc::GetUlTbSizeFromMcs()
+    int maxTbSize = LteAmc::TransportBlockSizeTable[nprb - 1][itbs]; // LteAmc::GetUlTbSizeFromMcs()
+    maxTbSize /= 8;     // bits to bytes
+    maxTbSize -= 32;    // upper layer overheads
+    NS_LOG_INFO ("* Maximum tbSize = " << maxTbSize);
+
+    // Regulate lenCam to maximize throughput
+    if (lenCam < maxTbSize) {
+        NS_LOG_INFO ("* Current lenCam=" << lenCam << ": TOO SMALL for throughput maximization. Adjusted to maxTbSize=" << maxTbSize);
+        lenCam = maxTbSize;
+    } else if (lenCam > maxTbSize) {
+        NS_LOG_INFO ("* Current lenCam=" << lenCam << ": TOO LARGE for throughput maximization. Adjusted to maxTbSize=" << maxTbSize);
+        lenCam = maxTbSize;
+    }
+
+    // Regulate numCam to ensure reasonable ideal scheduling
+    if (idealScheduled && numCam > pRsvp * numSubchannel / numVeh) {
+        // Should actually be pRsvp / numVeh, since idealScheduled should not work with numSubchannel > 1 (will have the issue of 0 SINR for multiple slots within the same subframe)
+        NS_LOG_INFO ("* Current numCam=" << numCam << ": TOO LARGE for ideal scheduling. Adjusted to pRsvp*numSubchannel/numVeh=" << pRsvp * numSubchannel / numVeh);
+        numCam = pRsvp * numSubchannel / numVeh;
+    }
+
+    // ryu5: if idealScheduled, calculate scheduling right here!
+    if (idealScheduled) {
+        //uint32_t numSlotsToAlloc = ((t2-t1<pRsvp) ? (t2-t1) : pRsvp ) * (uint32_t)numSubchannel;    // => In total this number of subchannels within a selection window to allocate...
+        uint32_t numSlotsToAlloc = pRsvp * (uint32_t)numSubchannel;    // => In total this number of subchannels within a selection window to allocate...
+        uint32_t numSlotsPerVeh = numSlotsToAlloc / numVeh;      // => Each vehicle should have this many to go. Some may be wasted if cannot fully divide.
+        //std::cout << t2-t1 << " " << pRsvp << " " << numSubchannel << " " << numSlotsPerVeh << " " << numSlotsToAlloc << std::endl;
+        NS_LOG_INFO ("Calculating ideal schedule: numSlotsToAlloc = " << numSlotsToAlloc << ", numSlotsPerVeh = " << numSlotsPerVeh);
+        NS_ASSERT_MSG( numCam <= numSlotsPerVeh, "[X] Ideal schedule: numCam = " << numCam << " is greater than numSlotsPerVeh = " << numSlotsPerVeh );
+        NS_ASSERT_MSG( numCam * numVeh <= pRsvp * numSubchannel, "[X] Ideal schedule: numCam * numVeh = " << numCam * numVeh << " is greater than pRsvp * numSubchannel = " << pRsvp * numSubchannel );
+
+        // We actually need some spacing to minimize cross-subframe co-channel interference
+        uint32_t subframeSpacing = (pRsvp * numSubchannel) / (numCam * numVeh) - 1;
+        NS_LOG_INFO ("Calculating ideal schedule: subframeSpacing = " << subframeSpacing);
+
+        // Compute scheduling map for idealScheduled
+        std::vector< std::vector< uint32_t > > idealScheduleResourceMap ( numVeh );
+        uint32_t idxRbAll = 0; // we use this to iterate over Rbs
+        for (uint32_t idxRb = 0; idxRb < numCam; idxRb++) {
+            for (uint32_t idxVeh = 0; idxVeh < numVeh; idxVeh++) {
+                //-> No spacing scheduling
+                idealScheduleResourceMap[idxVeh].push_back( (idxVeh * numCam + idxRb) * (1 + subframeSpacing) ); //< All RBs of one vehicle scheduled together -- due to cross-subframe co-channel interference, PRR is extremely low (0)
+                //idealScheduleResourceMap[idxVeh].push_back( idxVeh + idxRb * numVeh ); //< Much better PRR, but still only ~ 80% maximum
+                //idealScheduleResourceMap[idxVeh].push_back( (idxRb * numVeh + idxVeh) * (1 + subframeSpacing) ); //< Much better PRR, but still only ~ 80% maximum
+
+                //-> Scheduling with spacing between subframes for transmission
+                // idealScheduleResourceMap[idxVeh].push_back( idxRbAll );
+                // idxRbAll ++;
+                // if (subframeSpacing > 0 && idxRbAll % numSubchannel == 0) {
+                //     idxRbAll += numSubchannel * subframeSpacing; // skip the number of subframes defined by subframeSpacing
+                // }
+            }
+        }
+
+        // Print resource map
+        std::cout << "Output idealScheduled resource map:" << std::endl;
+        for (uint32_t idxVeh = 0; idxVeh < numVeh; idxVeh++) {
+            std::cout << "  Vehicle " << idxVeh << ": ";
+            for (uint32_t idxRb = 0; idxRb < numCam; idxRb++) {
+                std::cout << idealScheduleResourceMap[idxVeh][idxRb] << " ";
+            }
+            std::cout << std::endl;
+        }
+
+        // Assign those to LteUeMac
+        Config::SetDefault ("ns3::LteUeMac::IdealScheduled", BooleanValue(idealScheduled));
+        LteUeMac::idealScheduleResourceMap = idealScheduleResourceMap;
+    }
+
+    Config::SetDefault ("ns3::LteUeMac::PickFromMore", BooleanValue(pickFromMore));
+    // !ryu5
 
     AsciiTraceHelper ascii;
     log_simtime = ascii.CreateFileStream(simtime);
@@ -255,6 +411,8 @@ main (int argc, char *argv[])
     Config::SetDefault ("ns3::LteUeMac::SelectionWindowT1", UintegerValue(t1));
     Config::SetDefault ("ns3::LteUeMac::SelectionWindowT2", UintegerValue(t2));
     //Config::SetDefault ("ns3::LteUeMac::EnableExcludeSubframe", BooleanValue(excludeSubframe)); 
+    // ryu5
+    Config::SetDefault ("ns3::LteUeMac::NumCam", UintegerValue(numCam));
 
     ConfigStore inputConfig; 
     inputConfig.ConfigureDefaults(); 

@@ -139,6 +139,13 @@ private:
    */
   AmcModel m_amcModel;
 
+  // ryu5: add required tables as static variables; previously they were just statically stored in lte-amc.cc
+public:
+  static const int McsToItbsUl[29];
+  static const int TransportBlockSizeTable [110][27];
+private:
+  // !ryu5
+
 }; // end of `class LteAmc`
 
 

@@ -194,6 +194,7 @@ void
 LtePdcp::DoTransmitPdcpSdu (Ptr<Packet> p)
 {
   NS_LOG_FUNCTION (this << m_rnti << (uint32_t) m_lcid << p->GetSize ());
+  //std::cout << "[xx=xx] We are here pdcpsdu " << std::endl; // Yes, we are here
 
   LtePdcpHeader pdcpHeader;
   pdcpHeader.SetSequenceNumber (m_txSequenceNumber);

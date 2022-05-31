@@ -38,6 +38,10 @@ NS_LOG_COMPONENT_DEFINE ("HalfDuplexIdealPhy");
 
 NS_OBJECT_ENSURE_REGISTERED (HalfDuplexIdealPhy);
 
+// ryu5
+uint32_t HalfDuplexIdealPhy::nPktsRxed = 0;
+// !ryu5
+
 HalfDuplexIdealPhy::HalfDuplexIdealPhy ()
   : m_mobility (0),
     m_netDevice (0),
@@ -357,6 +361,7 @@ HalfDuplexIdealPhy::StartRx (Ptr<SpectrumSignalParameters> spectrumParams)
         {
         case TX:
           // the PHY will not notice this incoming signal
+          //std::cout << "[X] Rx when Txing" << std::endl;// ryu5: None here
           break;
 
         case RX:
@@ -366,6 +371,7 @@ HalfDuplexIdealPhy::StartRx (Ptr<SpectrumSignalParameters> spectrumParams)
           //  1) signal strength (e.g., as returned by rxPsd.Norm ())
           //  2) how much time has passed since previous RX attempt started
           // if re-sync (capture) is done, then we should call AbortRx ()
+          //std::cout << "[X] Rx when Rxing" << std::endl; // ryu5: None here
           break;
 
         case IDLE:
@@ -389,12 +395,16 @@ HalfDuplexIdealPhy::StartRx (Ptr<SpectrumSignalParameters> spectrumParams)
           NS_LOG_LOGIC (this << " scheduling EndRx with delay " << rxParams->duration);
           m_endRxEventId = Simulator::Schedule (rxParams->duration, &HalfDuplexIdealPhy::EndRx, this);
 
+          // ryu5
+          nPktsRxed ++;
+
           break;
 
         }
     }
   else // rxParams == 0
     {
+      //std::cout << "[X] Unknown signal" << std::endl; // ryu5: None here
       NS_LOG_LOGIC (this << " signal of unknown type");
     }
 

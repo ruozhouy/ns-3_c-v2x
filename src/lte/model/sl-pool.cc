@@ -889,7 +889,7 @@ namespace ns3 {
   std::list<SidelinkCommResourcePoolV2x::SidelinkTransmissionInfo>
   SidelinkCommResourcePoolV2x::GetPscchTransmissions (SidelinkCommResourcePoolV2x::SubframeInfo subframe, uint8_t riv, uint16_t pRsvp, uint8_t sfGap, uint8_t reTxIdx, uint8_t pscchResource, uint8_t reselCtr)
   { 
-    NS_ASSERT (subframe.frameNo > 0 && subframe.frameNo <= 1024 && subframe.subframeNo > 0 && subframe.subframeNo <= 10);
+    NS_ASSERT_MSG (subframe.frameNo > 0 && subframe.frameNo <= 1024 && subframe.subframeNo > 0 && subframe.subframeNo <= 10, "" << subframe.frameNo << "/" << subframe.subframeNo);
     
     bool adjacency = LteRrcSap::adjacencyAsBool(m_adjacencyPscchPssch);
     uint16_t sizeSubch = LteRrcSap::sizeSubchannelAsInt(m_sizeSubchannel);
@@ -1012,11 +1012,7 @@ namespace ns3 {
         for (uint8_t ctr = 0; ctr < reselCtr; ctr++)
         {
           first.subframe.frameNo = subframe.frameNo + ctr*pRsvp/10; 
-          if (first.subframe.frameNo > 2048) 
-          {
-            first.subframe.frameNo -= 2048; 
-          }
-          else if (first.subframe.frameNo > 1024) 
+          while (first.subframe.frameNo > 1024) 
           {
             first.subframe.frameNo -= 1024; 
           }
@@ -1121,11 +1117,7 @@ namespace ns3 {
         for(uint8_t ctr = 0; ctr < reselCtr; ctr++)
         {
           first.subframe.frameNo = subframe.frameNo + ctr*pRsvp/10; 
-          if (first.subframe.frameNo > 2048) 
-          {
-            first.subframe.frameNo -= 2048; 
-          }
-          else if (first.subframe.frameNo > 1024) 
+          while (first.subframe.frameNo > 1024) 
           {
             first.subframe.frameNo -= 1024; 
           }
@@ -1257,11 +1249,7 @@ namespace ns3 {
         for(uint8_t ctr = 0; ctr < reselCtr; ctr++)
         {
           first.subframe.frameNo = subframe.frameNo + ctr*pRsvp/10; 
-          if (first.subframe.frameNo > 2048) 
-          {
-            first.subframe.frameNo -= 2048; 
-          }
-          else if (first.subframe.frameNo > 1024) 
+          while (first.subframe.frameNo > 1024) 
           {
             first.subframe.frameNo -= 1024;
           }
@@ -1370,11 +1358,7 @@ namespace ns3 {
         {
           first.subframe.frameNo = subframe.frameNo + ctr*pRsvp/10; 
 
-          if (first.subframe.frameNo > 2048)
-          {
-            first.subframe.frameNo -= 2048; 
-          }
-          else if (first.subframe.frameNo > 1024)
+          while (first.subframe.frameNo > 1024)
           {
             first.subframe.frameNo -= 1024; 
           }

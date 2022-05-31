@@ -227,6 +227,7 @@ EpcUeNas::Send (Ptr<Packet> packet)
             if ((*it)->Matches(ipv4Header.GetDestination ())) {
               //Found sidelink
               NS_LOG_LOGIC ("NAS found Sidelink");
+              // std::cout << "[xx=xx] We are here 1 " << std::endl; // No, not here
               m_asSapProvider->SendSidelinkData (packet, (*it)->GetGroupL2Address());
               return true;
             }
@@ -253,6 +254,7 @@ EpcUeNas::Send (Ptr<Packet> packet)
           }
         else
           {
+            // std::cout << "[xx=xx] We are here 2 " << std::endl; // No, not here
             m_asSapProvider->SendData (packet, bid); 
             return true;
           }
@@ -272,6 +274,7 @@ EpcUeNas::Send (Ptr<Packet> packet)
                 if ((*it)->Matches(ipv4Header.GetDestination ())) {
                   //Found sidelink
                   NS_LOG_LOGIC ("found sidelink");
+                  //std::cout << "[xx=xx] We are here 3 " << std::endl; // Yes, we are here...
                   m_asSapProvider->SendSidelinkData (packet, (*it)->GetGroupL2Address());
                   return true;
                 }

@@ -291,7 +291,8 @@ LteUeNetDevice::Send (Ptr<Packet> packet, const Address& dest, uint16_t protocol
     {
       NS_LOG_INFO ("unsupported protocol " << protocolNumber << ", only IPv4 and IPv6 are supported");
       return true;
-    }  
+    }
+  // std::cout << "[==xx==xx==] Are we here?" << std::endl;   // <= Yes, we are here
   return m_nas->Send (packet);
 }
 

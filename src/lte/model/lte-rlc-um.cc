@@ -86,13 +86,14 @@ void
 LteRlcUm::DoTransmitPdcpPdu (Ptr<Packet> p)
 {
   NS_LOG_FUNCTION (this << m_rnti << (uint32_t) m_lcid << p->GetSize ());
+  //std::cout << "[xx=xx] We are here rlc-um " << std::endl; // Yes, we are here...
 
   if (m_txBufferSize + p->GetSize () <= m_maxTxBufferSize)
     {
       /** Store arrival time */
       RlcTag timeTag (Simulator::Now ());
       p->AddPacketTag (timeTag);
-
+ 
       /** Store PDCP PDU */
 
       LteRlcSduStatusTag tag;
@@ -163,7 +164,9 @@ LteRlcUm::DoNotifyTxOpportunity (uint32_t bytes, uint8_t layer, uint8_t harqId, 
   m_txBufferSize -= (*(m_txBuffer.begin()))->GetSize ();
   NS_LOG_LOGIC ("txBufferSize      = " << m_txBufferSize );
   m_txBuffer.erase (m_txBuffer.begin ());
-
+  
+  //std::cout << "x-x-x firstSegment->GetSize ()=" << (int)firstSegment->GetSize () << std::endl;
+  //int iii=0;
   while ( firstSegment && (firstSegment->GetSize () > 0) && (nextSegmentSize > 0) )
     {
       NS_LOG_LOGIC ("WHILE ( firstSegment && firstSegment->GetSize > 0 && nextSegmentSize > 0 )");
@@ -177,6 +180,8 @@ LteRlcUm::DoNotifyTxOpportunity (uint32_t bytes, uint8_t layer, uint8_t harqId, 
           // Take the minimum size, due to the 2047-bytes 3GPP exception
           // This exception is due to the length of the LI field (just 11 bits)
           uint32_t currSegmentSize = std::min (firstSegment->GetSize (), nextSegmentSize);
+          //std::cout << "x-x-x currSegmentSize=" << (int)currSegmentSize << " ... " << (iii++) << std::endl; // ryu5: only 1 iteration in this while loop at all...
+          
 
           NS_LOG_LOGIC ("    IF ( firstSegment > nextSegmentSize ||");
           NS_LOG_LOGIC ("         firstSegment > 2047 )");

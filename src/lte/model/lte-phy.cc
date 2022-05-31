@@ -217,6 +217,8 @@ LtePhy::SetControlMessages (Ptr<LteControlMessage> m)
   // In uplink the queue of control messages and packet are of different sizes
   // for avoiding TTI cancellation due to synchronization of subframe triggers
   m_controlMessagesQueue.at (m_controlMessagesQueue.size () - 1).push_back (m);
+  //std::cout << "xx m_controlMessagesQueue.size(): " << m_controlMessagesQueue.size() 
+  //          << " | xx m_controlMessagesQueue.at (m_controlMessagesQueue.size () - 1).size(): " << m_controlMessagesQueue.at (m_controlMessagesQueue.size () - 1).size() << std::endl;
 }
 
 std::list<Ptr<LteControlMessage> >

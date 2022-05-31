@@ -79,6 +79,7 @@ void
 LteRlcTm::DoTransmitPdcpPdu (Ptr<Packet> p)
 {
   NS_LOG_FUNCTION (this << m_rnti << (uint32_t) m_lcid << p->GetSize ());
+  std::cout << "[xx=xx] We are here rlc-tm " << std::endl; // No we are not here...
 
   if (m_txBufferSize + p->GetSize () <= m_maxTxBufferSize)
     {
