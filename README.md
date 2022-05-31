@@ -1,15 +1,6 @@
-# Cellular Vehicle-to-Everything (C-V2X) Mode 4 Communication Model for ns-3
+# Cellular Vehicle-to-Everything (C-V2X) Mode 4 Communication Model for ns-3, with Collaborative Perception Use Case
 
-A ns-3 model for C-V2X Mode 4 communication based on the ns-3 D2D model from [NIST](https://github.com/usnistgov/psc-ns3/tree/d2d-ns-3.22).
-
-![TU Dortmund University](img/tu-dortmund_small.png "TU Dortmund University")
-![InVerSiV](img/Inversiv_small.png "InVerSiV")
-![SFB 876](img/SFB876_small.png "Collaborative Research Center SFB 876")
-![Communication Networks Institute](img/CNI_small.png "Communication Networks Institute")
-![EFRE](img/EFRE_small.png "EFRE")
-![DFG](img/DFG_small.png "DFG")
-
-The work on this paper has been partially funded by the federal state of Northrhine-Westphalia and the “European Regional Development Fund” (EFRE) 2014-2020 in the course of the InVerSiV project under grant number EFRE-0800422 and by DeutscheForschungsgemeinschaft (DFG) within the Collaborative Research Center SFB 876 project B4.
+Simulating collaborative perception use cases in C-V2X Mode 4. The simulator does not simulate actual perception traffic, but instead have each vehicle send multiple large-sized packets per scheduling round. Size of the collaborative perception packet can be configured in the script.
 
 ## Installation
 
@@ -34,18 +25,42 @@ To run the example script run:
    ./waf --run v2x_communication_example
 ```
 
-# Cite as
+To reproduce results in the paper, please run one of the python scripts:
+```
+   python scratch/run-1.py
+```
+or 
+```
+   python scratch/run-2.py
+```
+
+The results should be stored in
+```
+   scratch/v2x_data/
+```
+
+
+
+# Cite As
 
 If you use our model in your research, please cite the following paper:
 
-F. Eckermann, M. Kahlert, C. Wietfeld, ["Performance Analysis of C-V2X Mode 4 Communication Introducing an Open-Source C-V2X Simulator"](https://www.kn.e-technik.tu-dortmund.de/.cni-bibliography/publications/cni-publications/Eckermann2019performance.pdf), In 2019 IEEE 90th Vehicular Technology Conference (VTC-Fall), Honolulu, Hawaii, USA, September 2019.
+R. Yu, D. Yang, and H. Zhang, ["Edge-Assisted Collaborative Perception in Autonomous Driving: A Reflection on Communication Design"](https://people.engr.ncsu.edu/ryu5/docs/sec-wkshps-21-paper.pdf), in Proc. ACM SEC Workshop on Edge Computing and Communications (EdgeComm), 2021, pp. 1–6.
 
 ### Bibtex:
-    @InProceedings{Eckermann2019performance,
-        Author = {Fabian Eckermann and Moritz Kahlert and Christian Wietfeld},
-        Title = {Performance Analysis of {C-V2X} Mode 4 Communication Introducing an Open-Source {C-V2X} Simulator},
-        Booktitle = {2019 IEEE 90th Vehicular Technology Conference (VTC-Fall)},
-        Year = {2019},
-        Address = {Honolulu, Hawaii, USA},
-        Month = {September},
+    @inproceedings{Yu2021a,
+        author = {Yu, Ruozhou and Yang, Dejun and Zhang, Hao},
+        booktitle = {Proc. ACM SEC Workshop on Edge Computing and Communications (EdgeComm)},
+        pages = {1--6},
+        title = {{Edge-Assisted Collaborative Perception in Autonomous Driving: A Reflection on Communication Design}},
+        year = {2021}
     }
+
+
+
+# Acknowledgement
+
+The simulator is based on the following paper's open-source code:
+
+F. Eckermann, M. Kahlert, C. Wietfeld, ["Performance Analysis of C-V2X Mode 4 Communication Introducing an Open-Source C-V2X Simulator"](https://www.kn.e-technik.tu-dortmund.de/.cni-bibliography/publications/cni-publications/Eckermann2019performance.pdf), In 2019 IEEE 90th Vehicular Technology Conference (VTC-Fall), Honolulu, Hawaii, USA, September 2019.
+
